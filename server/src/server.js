@@ -25,6 +25,11 @@ app.use(express.json());
 // API Routes
 app.use('/api', testRoutes);
 
+// Health check endpoint for Railway
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
 // Static Client Serving
 const possiblePaths = [
   path.join(__dirname, '../../client/dist'),
@@ -73,12 +78,13 @@ function getLocalIPs() {
   return addresses;
 }
 
-const HTTP_PORT = process.env.PORT || 5000;
+// Default to 8080 (Railway standard port) if PORT is not set
+const HTTP_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
 
-// Start HTTP Server
+// Start HTTP Server on all interfaces (0.0.0.0)
 httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
