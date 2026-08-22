@@ -40,19 +40,16 @@ function getClientIp(req) {
       ip = ip.replace('::ffff:', '');
     }
   }
-  return ip || '127.0.0.1';
+  return ip || null;
 }
 
 // Global IP detection & auto-bind middleware: ALWAYS target the accessing device's IP!
 app.use((req, res, next) => {
   const clientIp = getClientIp(req);
-  stateService.setDetectedClientIp(clientIp);
-
-  // Automatically connect TCP client to this device's IP whenever accessed
   if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
+    stateService.setDetectedClientIp(clientIp);
     setTargetHost(clientIp, 7000);
   }
-
   next();
 });
 
@@ -111,7 +108,7 @@ function getLocalIPs() {
 // Configurable Ports
 const HTTP_PORT = process.env.PORT || 5000;
 const TCP_PORT = parseInt(process.env.TCP_PORT, 10) || 7000;
-const ANDROID_HOST = process.env.ANDROID_HOST || '127.0.0.1';
+const ANDROID_HOST = (process.env.ANDROID_HOST && process.env.ANDROID_HOST !== '127.0.0.1') ? process.env.ANDROID_HOST : null;
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
@@ -121,7 +118,7 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
 
-  // Connect TCP Client
+  // Initialize TCP client (waits in standby until a device accesses or uses ANDROID_HOST)
   initTcpServer(TCP_PORT, ANDROID_HOST);
 
   console.log(`\n=============================================================`);
@@ -129,6 +126,6 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`   Team: The Inevitables`);
   console.log(`=============================================================`);
   console.log(`📡 Web UI & Socket.IO URL: http://${primaryIP}:${HTTP_PORT}`);
-  console.log(`📱 TCP Client Target:      Automatic (Binds to accessing device IP)`);
+  console.log(`📱 TCP Client Target:      Dynamic (Binds to accessing device IP)`);
   console.log(`=============================================================\n`);
 });

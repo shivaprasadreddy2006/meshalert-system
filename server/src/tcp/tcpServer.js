@@ -6,18 +6,22 @@ let reconnectTimer = null;
 let isConnecting = false;
 let buffer = '';
 
-let currentTargetHost = process.env.ANDROID_HOST || '127.0.0.1';
+let currentTargetHost = (process.env.ANDROID_HOST && process.env.ANDROID_HOST !== '127.0.0.1') ? process.env.ANDROID_HOST : null;
 let currentTargetPort = parseInt(process.env.TCP_PORT, 10) || 7000;
 
 const RECONNECT_DELAY_MS = 3000;
 
 function initTcpClient(port = currentTargetPort, host = currentTargetHost) {
-  currentTargetHost = host;
   currentTargetPort = port;
-  stateService.setTargetDevice(currentTargetHost, currentTargetPort);
-
-  console.log(`🔌 [TCP CLIENT] Target Android TCP Server configured: ${currentTargetHost}:${currentTargetPort}`);
-  connect(currentTargetHost, currentTargetPort);
+  if (host && host !== '127.0.0.1' && host !== 'localhost') {
+    currentTargetHost = host;
+    stateService.setTargetDevice(currentTargetHost, currentTargetPort);
+    console.log(`🔌 [TCP CLIENT] Target Android TCP Server configured: ${currentTargetHost}:${currentTargetPort}`);
+    connect(currentTargetHost, currentTargetPort);
+  } else {
+    currentTargetHost = null;
+    console.log(`⏳ [TCP CLIENT] Standby — waiting for device to open Web App to auto-bind device IP on port ${currentTargetPort}...`);
+  }
 }
 
 function setTargetHost(newHost, newPort = currentTargetPort) {
@@ -29,13 +33,20 @@ function setTargetHost(newHost, newPort = currentTargetPort) {
     cleanHost = cleanHost.replace('::ffff:', '');
   }
 
-  // If already targeting this host & connected or connecting, do nothing unless port changed
-  if (cleanHost === currentTargetHost && newPort === currentTargetPort && (tcpClient && !tcpClient.destroyed)) {
-    console.log(`ℹ️ [TCP CLIENT] Already connected/connecting to ${cleanHost}:${newPort}`);
+  // Do not bind to 127.0.0.1 in production when looking for real devices
+  if (cleanHost === '127.0.0.1' || cleanHost === 'localhost' || cleanHost === '::1') {
     return;
   }
 
-  console.log(`\n🔄 [TCP CLIENT] Switching target host: ${currentTargetHost}:${currentTargetPort} -> ${cleanHost}:${newPort}`);
+  // If already targeting this host and connected or connecting, do nothing
+  if (cleanHost === currentTargetHost && newPort === currentTargetPort && (tcpClient && !tcpClient.destroyed)) {
+    return;
+  }
+
+  console.log(`\n======================================================`);
+  console.log(`📱 [TCP CLIENT] Switching target to Device IP: ${cleanHost}:${newPort}`);
+  console.log(`======================================================`);
+
   currentTargetHost = cleanHost;
   currentTargetPort = newPort;
   stateService.setTargetDevice(currentTargetHost, currentTargetPort);
@@ -58,7 +69,7 @@ function setTargetHost(newHost, newPort = currentTargetPort) {
   isConnecting = false;
   stateService.setAndroidConnected(false, 0);
 
-  // Connect to new host immediately
+  // Connect to the device IP immediately
   connect(currentTargetHost, currentTargetPort);
 }
 
@@ -71,16 +82,16 @@ function getTargetInfo() {
 }
 
 function connect(host, port) {
-  if (isConnecting) return;
+  if (!host || host === '127.0.0.1' || isConnecting) return;
   isConnecting = true;
 
-  console.log(`📡 [TCP CLIENT] Attempting connection to Android at ${host}:${port}...`);
+  console.log(`📡 [TCP CLIENT] Attempting connection to Android Phone at ${host}:${port}...`);
 
   const socket = new net.Socket();
   tcpClient = socket;
   buffer = '';
 
-  // Timeout connection attempt after 5 seconds to trigger retry
+  // Timeout connection attempt after 5 seconds
   socket.setTimeout(5000);
 
   socket.connect(port, host, () => {
@@ -88,7 +99,7 @@ function connect(host, port) {
     socket.setTimeout(0); // clear timeout once connected
 
     console.log('\n======================================================');
-    console.log(`📱 [TCP CLIENT] Connected to Android TCP Server at ${host}:${port}`);
+    console.log(`🟢 [TCP CLIENT] Connected to Android Phone TCP Server at ${host}:${port}!`);
     console.log('======================================================');
 
     stateService.setAndroidConnected(true, 1);
@@ -129,8 +140,8 @@ function connect(host, port) {
   socket.on('close', () => {
     isConnecting = false;
     stateService.setAndroidConnected(false, 0);
-    // Only reconnect if this is still the active host
-    if (host === currentTargetHost && port === currentTargetPort) {
+    // Only reconnect if this is still the active device host
+    if (host === currentTargetHost && port === currentTargetPort && currentTargetHost) {
       console.log(`🔴 [TCP CLIENT] Connection to Android (${host}:${port}) closed. Reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`);
       scheduleReconnect(host, port);
     }
@@ -140,8 +151,8 @@ function connect(host, port) {
     isConnecting = false;
     stateService.setAndroidConnected(false, 0);
     socket.destroy();
-    if (host === currentTargetHost && port === currentTargetPort) {
-      console.error(`⚠️ [TCP CLIENT ERROR] ${host}:${port} — ${err.message} (retrying in ${RECONNECT_DELAY_MS / 1000}s)`);
+    if (host === currentTargetHost && port === currentTargetPort && currentTargetHost) {
+      console.error(`⚠️ [TCP CLIENT] ${host}:${port} — ${err.message} (retrying in ${RECONNECT_DELAY_MS / 1000}s)`);
       scheduleReconnect(host, port);
     }
   });
@@ -150,7 +161,7 @@ function connect(host, port) {
 function scheduleReconnect(host, port) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => {
-    if (host === currentTargetHost && port === currentTargetPort) {
+    if (host === currentTargetHost && port === currentTargetPort && currentTargetHost) {
       connect(host, port);
     }
   }, RECONNECT_DELAY_MS);
