@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "description": "Mesh-based Alerting System with Localization Support (Team: The Inevitables)",
   "private": true,
+  "main": "index.js",
   "scripts": {
     "build": "npm --prefix client run build",
-    "start": "node server/src/server.js",
-    "dev": "node server/src/server.js",
+    "start": "node index.js",
+    "dev": "node index.js",
     "postinstall": "npm --prefix server install && npm --prefix client install"
   },
   "dependencies": {

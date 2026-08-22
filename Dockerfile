@@ -9,19 +9,22 @@ RUN npm run build
 
 # Stage 2: Production Server
 FROM node:20-alpine AS runner
-WORKDIR /app/server
+WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 
-# Copy server package & install production deps
-COPY server/package*.json ./
-RUN npm install --omit=dev
-COPY server/src ./src
+# Copy root & server packages
+COPY package*.json ./
+COPY server/package*.json ./server/
+RUN npm install --omit=dev && npm --prefix server install --omit=dev
+
+COPY index.js ./
+COPY server/src ./server/src
 
 # Copy built client into place
-COPY --from=client-builder /app/client/dist /app/client/dist
+COPY --from=client-builder /app/client/dist ./client/dist
 
 # Expose standard Railway port
 EXPOSE 8080 5000 7000
 
-CMD ["node", "src/server.js"]
+CMD ["node", "index.js"]
