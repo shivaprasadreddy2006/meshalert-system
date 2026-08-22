@@ -29,7 +29,7 @@ export default function App() {
       ? 'http://localhost:5000'
       : window.location.origin;
 
-    // 1. Probe backend for detected client IP
+    // 1. Ask backend directly what device IP it detected and is targeting
     fetch(`${BACKEND_URL}/api/device/my-ip`)
       .then((res) => res.json())
       .then((data) => {
@@ -41,27 +41,7 @@ export default function App() {
       })
       .catch((err) => console.log('Backend IP probe error:', err));
 
-    // 2. Direct browser public IP lookup fallback (guarantees fast resolution)
-    fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.ip) {
-          const clientPublicIp = data.ip.trim();
-          setDetectedClientIp(clientPublicIp);
-          setTargetDeviceIp(clientPublicIp);
-
-          // Report public IP to backend via WebSocket and REST
-          socket.emit('device:report_ip', { ip: clientPublicIp });
-          fetch(`${BACKEND_URL}/api/device/set-target-ip`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip: clientPublicIp, port: 7000 })
-          }).catch(() => {});
-        }
-      })
-      .catch(() => {});
-
-    // 3. Initial State Snapshot from Backend
+    // 2. Initial State Snapshot from Backend Socket
     socket.on('initial_state', (data) => {
       console.log('📡 [INIT STATE] Snapshot from backend:', data);
       if (data) {
@@ -76,7 +56,7 @@ export default function App() {
       }
     });
 
-    // 4. Android TCP Connection State Change
+    // 3. Android TCP Connection State Change
     socket.on('android:status', (data) => {
       console.log('📱 [TCP STATUS] Android connection updated:', data);
       setAndroidConnected(Boolean(data.androidConnected));
@@ -84,7 +64,7 @@ export default function App() {
       if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
     });
 
-    // 5. Dynamic Target IP updated
+    // 4. Dynamic Target IP updated from Backend
     socket.on('device:target_updated', (data) => {
       console.log('🔄 [TARGET IP UPDATED]:', data);
       if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
@@ -92,12 +72,12 @@ export default function App() {
       setAndroidConnected(Boolean(data.androidConnected));
     });
 
-    // 6. Detected client IP
+    // 5. Detected client IP from Backend
     socket.on('device:detected_ip', (data) => {
       if (data.detectedClientIp) setDetectedClientIp(data.detectedClientIp);
     });
 
-    // 7. Live Emergency Alert from Android TCP / Web Bridge
+    // 6. Live Emergency Alert from Android TCP / Web Bridge
     socket.on('emergency:alert', (newAlert) => {
       console.log('🚨 [ALERT RECEIVED] Emergency broadcast:', newAlert);
       setAlert(newAlert);
@@ -113,7 +93,7 @@ export default function App() {
       playEmergencyAlarm();
     });
 
-    // 8. Alert Cleared Event
+    // 7. Alert Cleared Event
     socket.on('alert:cleared', () => {
       console.log('✅ [ALERT CLEARED]');
       setAlert(null);
@@ -157,8 +137,8 @@ export default function App() {
     setShowFullScreen(false);
   };
 
-  // Resolved active device IP to display
-  const activeDeviceIp = detectedClientIp || targetDeviceIp || (window.location.hostname !== 'localhost' ? window.location.hostname : '127.0.0.1');
+  // The single synchronized device IP targeted by backend
+  const activeDeviceIp = targetDeviceIp || detectedClientIp;
 
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
