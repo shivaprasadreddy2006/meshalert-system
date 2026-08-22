@@ -1,12 +1,14 @@
 import React from 'react';
-import { Radio, Shield, User, ArrowRight } from 'lucide-react';
+import { Radio, Shield, User, ArrowRight, Smartphone } from 'lucide-react';
 import { unlockAudio } from '../services/audioAlarm';
 
-export default function RoleSelect({ onSelectRole, androidConnected }) {
+export default function RoleSelect({ onSelectRole, androidConnected, deviceIp }) {
   const handleSelect = (role) => {
     unlockAudio();
     onSelectRole(role);
   };
+
+  const displayIp = deviceIp && deviceIp !== '127.0.0.1' ? deviceIp : null;
 
   return (
     <div className="min-h-[75vh] flex items-center justify-center p-3 sm:p-4">
@@ -73,10 +75,19 @@ export default function RoleSelect({ onSelectRole, androidConnected }) {
 
         </div>
 
-        {/* Live Status indicator */}
-        <div className="text-xs font-mono text-slate-400 flex items-center justify-center gap-2 pt-1">
-          <span className={`w-2 h-2 rounded-full ${androidConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-          <span>Android BLE Bridge: <strong className={androidConnected ? 'text-emerald-400' : 'text-rose-400'}>{androidConnected ? 'Connected 🟢' : 'Disconnected 🔴'}</strong></span>
+        {/* Live Status & IP indicator */}
+        <div className="space-y-1.5 pt-1 text-xs font-mono">
+          <div className="text-slate-400 flex items-center justify-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${androidConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            <span>Android TCP: <strong className={androidConnected ? 'text-emerald-400' : 'text-rose-400'}>{androidConnected ? 'Connected 🟢' : 'Connecting 🔴'}</strong></span>
+          </div>
+
+          {displayIp && (
+            <div className="text-slate-400 flex items-center justify-center gap-1.5 text-[11px]">
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Target Device IP: <strong className="text-emerald-400">{displayIp}</strong></span>
+            </div>
+          )}
         </div>
 
       </div>

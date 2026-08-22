@@ -25,6 +25,22 @@ export default function App() {
     window.addEventListener('click', handleFirstInteraction, { once: true });
     window.addEventListener('touchstart', handleFirstInteraction, { once: true });
 
+    // Fetch IP info immediately via REST API on landing
+    const BACKEND_URL = window.location.hostname === 'localhost' && window.location.port === '5173'
+      ? 'http://localhost:5000'
+      : window.location.origin;
+
+    fetch(`${BACKEND_URL}/api/device/my-ip`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.yourIp) {
+          setDetectedClientIp(data.yourIp);
+          if (data.currentTarget) setTargetDeviceIp(data.currentTarget);
+          if (data.currentTargetPort) setTargetDevicePort(data.currentTargetPort);
+        }
+      })
+      .catch(() => {});
+
     // 1. Initial State Snapshot from Backend
     socket.on('initial_state', (data) => {
       console.log('📡 [INIT STATE] Snapshot from backend:', data);
@@ -104,14 +120,6 @@ export default function App() {
     };
   }, []);
 
-  const handleSetTargetIp = (ip, port = 7000) => {
-    socket.emit('device:set_target_ip', { ip, port });
-  };
-
-  const handleAutoDetectIp = () => {
-    socket.emit('device:auto_detect_ip');
-  };
-
   const handleClearAlert = () => {
     stopEmergencyAlarm();
     setShowFullScreen(false);
@@ -129,6 +137,9 @@ export default function App() {
     setShowFullScreen(false);
   };
 
+  // Resolved active device IP to display
+  const activeDeviceIp = detectedClientIp || targetDeviceIp;
+
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       
@@ -137,7 +148,7 @@ export default function App() {
         role={role} 
         onSwitchRole={() => setRole(null)} 
         androidConnected={androidConnected}
-        targetDeviceIp={targetDeviceIp}
+        deviceIp={activeDeviceIp}
         hasActiveAlert={Boolean(alert)}
         onOpenFullScreen={() => setShowFullScreen(true)}
       />
@@ -148,15 +159,13 @@ export default function App() {
           <RoleSelect 
             onSelectRole={(selectedRole) => setRole(selectedRole)} 
             androidConnected={androidConnected}
-            targetDeviceIp={targetDeviceIp} 
+            deviceIp={activeDeviceIp} 
           />
         ) : role === 'client' ? (
           <ClientDashboard 
             androidConnected={androidConnected}
-            targetDeviceIp={targetDeviceIp}
+            targetDeviceIp={activeDeviceIp}
             detectedClientIp={detectedClientIp}
-            onAutoDetectIp={handleAutoDetectIp}
-            onSetTargetIp={handleSetTargetIp}
             alert={alert} 
             alertHistory={alertHistory}
             onOpenFullScreen={() => setShowFullScreen(true)}
@@ -164,11 +173,9 @@ export default function App() {
         ) : (
           <AdminDashboard 
             androidConnected={androidConnected}
-            targetDeviceIp={targetDeviceIp}
+            targetDeviceIp={activeDeviceIp}
             targetDevicePort={targetDevicePort}
             detectedClientIp={detectedClientIp}
-            onSetTargetIp={handleSetTargetIp}
-            onAutoDetectIp={handleAutoDetectIp}
             alert={alert} 
             alertHistory={alertHistory}
             onClearAlert={handleClearAlert} 
