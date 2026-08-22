@@ -14,7 +14,7 @@ export default function Navbar({ role, onSwitchRole, androidConnected, deviceIp,
     }
   };
 
-  const displayIp = deviceIp && deviceIp !== '127.0.0.1' ? deviceIp : (androidConnected ? 'Connected' : 'Detecting IP...');
+  const displayIp = deviceIp || (androidConnected ? 'Connected' : 'Detecting IP...');
 
   return (
     <header className="bg-dark-900/95 backdrop-blur-md border-b border-dark-700/80 px-3 sm:px-6 py-3 sticky top-0 z-30">
@@ -40,7 +40,7 @@ export default function Navbar({ role, onSwitchRole, androidConnected, deviceIp,
 
           {/* Connected Device IP Badge */}
           <div 
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-semibold border transition-all ${
               androidConnected 
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
                 : 'bg-blue-500/10 text-blue-400 border-blue-500/30'
@@ -48,8 +48,8 @@ export default function Navbar({ role, onSwitchRole, androidConnected, deviceIp,
             title={`Device IP: ${deviceIp || 'Detecting...'}`}
           >
             <Smartphone className="w-3 h-3 shrink-0" />
-            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${androidConnected ? 'bg-emerald-500 animate-pulse' : 'bg-blue-400'}`} />
-            <span className="truncate max-w-[110px] sm:max-w-[170px]">
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${androidConnected ? 'bg-emerald-500 animate-pulse' : 'bg-blue-400 animate-pulse'}`} />
+            <span className="truncate max-w-[120px] sm:max-w-[200px]">
               {displayIp}
             </span>
           </div>

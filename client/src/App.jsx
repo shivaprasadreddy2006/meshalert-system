@@ -10,7 +10,7 @@ import { playEmergencyAlarm, stopEmergencyAlarm, unlockAudio } from './services/
 export default function App() {
   const [role, setRole] = useState(null); // null | 'client' | 'admin'
   const [androidConnected, setAndroidConnected] = useState(false);
-  const [targetDeviceIp, setTargetDeviceIp] = useState('127.0.0.1');
+  const [targetDeviceIp, setTargetDeviceIp] = useState(null);
   const [targetDevicePort, setTargetDevicePort] = useState(7000);
   const [detectedClientIp, setDetectedClientIp] = useState(null);
   const [alert, setAlert] = useState(null);
@@ -25,23 +25,43 @@ export default function App() {
     window.addEventListener('click', handleFirstInteraction, { once: true });
     window.addEventListener('touchstart', handleFirstInteraction, { once: true });
 
-    // Fetch IP info immediately via REST API on landing
     const BACKEND_URL = window.location.hostname === 'localhost' && window.location.port === '5173'
       ? 'http://localhost:5000'
       : window.location.origin;
 
+    // 1. Probe backend for detected client IP
     fetch(`${BACKEND_URL}/api/device/my-ip`)
       .then((res) => res.json())
       .then((data) => {
-        if (data && data.yourIp) {
-          setDetectedClientIp(data.yourIp);
+        if (data) {
+          if (data.yourIp) setDetectedClientIp(data.yourIp);
           if (data.currentTarget) setTargetDeviceIp(data.currentTarget);
           if (data.currentTargetPort) setTargetDevicePort(data.currentTargetPort);
         }
       })
+      .catch((err) => console.log('Backend IP probe error:', err));
+
+    // 2. Direct browser public IP lookup fallback (guarantees fast resolution)
+    fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.ip) {
+          const clientPublicIp = data.ip.trim();
+          setDetectedClientIp(clientPublicIp);
+          setTargetDeviceIp(clientPublicIp);
+
+          // Report public IP to backend via WebSocket and REST
+          socket.emit('device:report_ip', { ip: clientPublicIp });
+          fetch(`${BACKEND_URL}/api/device/set-target-ip`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: clientPublicIp, port: 7000 })
+          }).catch(() => {});
+        }
+      })
       .catch(() => {});
 
-    // 1. Initial State Snapshot from Backend
+    // 3. Initial State Snapshot from Backend
     socket.on('initial_state', (data) => {
       console.log('📡 [INIT STATE] Snapshot from backend:', data);
       if (data) {
@@ -56,7 +76,7 @@ export default function App() {
       }
     });
 
-    // 2. Android TCP Connection State Change
+    // 4. Android TCP Connection State Change
     socket.on('android:status', (data) => {
       console.log('📱 [TCP STATUS] Android connection updated:', data);
       setAndroidConnected(Boolean(data.androidConnected));
@@ -64,7 +84,7 @@ export default function App() {
       if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
     });
 
-    // 3. Dynamic Target IP updated
+    // 5. Dynamic Target IP updated
     socket.on('device:target_updated', (data) => {
       console.log('🔄 [TARGET IP UPDATED]:', data);
       if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
@@ -72,12 +92,12 @@ export default function App() {
       setAndroidConnected(Boolean(data.androidConnected));
     });
 
-    // 4. Detected client IP
+    // 6. Detected client IP
     socket.on('device:detected_ip', (data) => {
       if (data.detectedClientIp) setDetectedClientIp(data.detectedClientIp);
     });
 
-    // 5. Live Emergency Alert from Android TCP / Web Bridge
+    // 7. Live Emergency Alert from Android TCP / Web Bridge
     socket.on('emergency:alert', (newAlert) => {
       console.log('🚨 [ALERT RECEIVED] Emergency broadcast:', newAlert);
       setAlert(newAlert);
@@ -93,7 +113,7 @@ export default function App() {
       playEmergencyAlarm();
     });
 
-    // 6. Alert Cleared Event
+    // 8. Alert Cleared Event
     socket.on('alert:cleared', () => {
       console.log('✅ [ALERT CLEARED]');
       setAlert(null);
@@ -138,7 +158,7 @@ export default function App() {
   };
 
   // Resolved active device IP to display
-  const activeDeviceIp = detectedClientIp || targetDeviceIp;
+  const activeDeviceIp = detectedClientIp || targetDeviceIp || (window.location.hostname !== 'localhost' ? window.location.hostname : '127.0.0.1');
 
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">

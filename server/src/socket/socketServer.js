@@ -3,7 +3,12 @@ const stateService = require('../services/stateService');
 const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
 
 function getSocketIp(socket) {
-  let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  let ip = socket.handshake.headers['cf-connecting-ip'] ||
+           socket.handshake.headers['x-real-ip'] ||
+           socket.handshake.headers['x-client-ip'] ||
+           socket.handshake.headers['x-forwarded-for'] ||
+           socket.handshake.address;
+
   if (ip && typeof ip === 'string') {
     if (ip.includes(',')) {
       ip = ip.split(',')[0].trim();
@@ -31,11 +36,9 @@ function initSocketServer(httpServer) {
     console.log(`💻 [WEB SOCKET] Client connected: ${socket.id} (Device IP: ${clientIp})`);
 
     // Track detected client IP
-    stateService.setDetectedClientIp(clientIp);
-
-    // Always automatically bind TCP client target to this accessing device IP
-    if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
-      console.log(`✨ [AUTO-IP] Automatically targeting TCP to accessing device: ${clientIp}:7000`);
+    if (clientIp && clientIp !== '127.0.0.1') {
+      stateService.setDetectedClientIp(clientIp);
+      console.log(`✨ [AUTO-IP] Targeting TCP to accessing device: ${clientIp}:7000`);
       setTargetHost(clientIp, 7000);
     }
 
@@ -44,6 +47,16 @@ function initSocketServer(httpServer) {
       ...stateService.getState(),
       yourDetectedIp: clientIp,
       targetInfo: getTargetInfo()
+    });
+
+    // Client explicitly reports its detected public IP from browser
+    socket.on('device:report_ip', (data) => {
+      if (data && data.ip) {
+        let cleanIp = String(data.ip).trim().replace('::ffff:', '');
+        console.log(`📱 [CLIENT REPORTED IP] Received IP from client: ${cleanIp}`);
+        stateService.setDetectedClientIp(cleanIp);
+        setTargetHost(cleanIp, 7000);
+      }
     });
 
     // Admin can clear active alerts

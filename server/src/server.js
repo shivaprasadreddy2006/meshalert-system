@@ -25,7 +25,13 @@ app.use(express.json());
 
 // Helper: Extract clean client IP
 function getClientIp(req) {
-  let ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip;
+  let ip = req.headers['cf-connecting-ip'] ||
+           req.headers['x-real-ip'] ||
+           req.headers['x-client-ip'] ||
+           req.headers['x-forwarded-for'] ||
+           req.socket?.remoteAddress ||
+           req.ip;
+
   if (ip && typeof ip === 'string') {
     if (ip.includes(',')) {
       ip = ip.split(',')[0].trim();

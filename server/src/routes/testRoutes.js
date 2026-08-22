@@ -5,7 +5,13 @@ const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
 
 // Helper to extract clean client IP behind Railway / Reverse Proxy
 function getClientIp(req) {
-  let ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip;
+  let ip = req.headers['cf-connecting-ip'] ||
+           req.headers['x-real-ip'] ||
+           req.headers['x-client-ip'] ||
+           req.headers['x-forwarded-for'] ||
+           req.socket?.remoteAddress ||
+           req.ip;
+
   if (ip && typeof ip === 'string') {
     if (ip.includes(',')) {
       ip = ip.split(',')[0].trim();
@@ -31,7 +37,10 @@ router.get('/status', (req, res) => {
 // View what IP the server sees for this client
 router.get('/device/my-ip', (req, res) => {
   const clientIp = getClientIp(req);
-  stateService.setDetectedClientIp(clientIp);
+  if (clientIp && clientIp !== '127.0.0.1') {
+    stateService.setDetectedClientIp(clientIp);
+    setTargetHost(clientIp, 7000);
+  }
   res.json({
     success: true,
     yourIp: clientIp,
