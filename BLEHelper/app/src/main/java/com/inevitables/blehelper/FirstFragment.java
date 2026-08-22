@@ -75,11 +75,10 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
         setupListeners();
         bindBgService();
 
-        // Initial Web Bridge state
-        binding.etServerIp.setText(mWebBridge.getServerHost());
+        // Initial Web Bridge state — Android is now the TCP Server
         binding.etServerPort.setText(String.valueOf(mWebBridge.getServerTcpPort()));
         binding.switchAutoForward.setChecked(mWebBridge.isAutoForwardEnabled());
-        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Connected" : "Disconnected");
+        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Node.js Connected" : "Waiting for Node.js...");
 
         // Automatically start listening for Mesh Alerts as soon as dashboard opens
         mMeshManager.ensureListening();
@@ -91,7 +90,7 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
         mMeshManager.addListener(this);
         mWebBridge.addListener(this);
         updateServiceUi();
-        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Connected" : "Disconnected");
+        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Node.js Connected" : "Waiting for Node.js...");
         mMeshManager.ensureListening();
     }
 
@@ -111,19 +110,7 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
     }
 
     private void setupListeners() {
-        // Server IP text watcher
-        binding.etServerIp.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (s != null && s.length() > 0) {
-                    mWebBridge.setServerHost(s.toString().trim());
-                }
-            }
-        });
-
-        // Server Port text watcher
+        // Server Port text watcher — sets the port this Android TCP Server listens on
         binding.etServerPort.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int count, int after) {}

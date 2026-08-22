@@ -71,6 +71,7 @@ function getLocalIPs() {
 // Configurable Ports
 const HTTP_PORT = process.env.PORT || 5000;
 const TCP_PORT = process.env.TCP_PORT || 7000;
+const ANDROID_HOST = process.env.ANDROID_HOST || '127.0.0.1';
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
@@ -80,16 +81,16 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
 
-  // Start Native TCP Server for Android
-  initTcpServer(TCP_PORT, '0.0.0.0');
+  // Connect TCP Client to Android TCP Server
+  initTcpServer(TCP_PORT, ANDROID_HOST);
 
   console.log(`\n=============================================================`);
   console.log(`🚀 MESH ALERT SYSTEM — UNIFIED PRODUCTION SERVER`);
   console.log(`   Team: The Inevitables`);
   console.log(`=============================================================`);
   console.log(`📡 Web UI & Socket.IO URL: http://${primaryIP}:${HTTP_PORT}`);
-  console.log(`📱 Android TCP Socket:     ${primaryIP}:${TCP_PORT}`);
-  console.log(`👉 In Android Native App, connect raw TCP socket to:`);
-  console.log(`   Host: "${primaryIP}" | Port: ${TCP_PORT}`);
+  console.log(`📱 TCP Client → Android:   ${ANDROID_HOST}:${TCP_PORT}`);
+  console.log(`👉 Node.js connects OUT to Android's TCP Server.`);
+  console.log(`   Set ANDROID_HOST env var to the Android device IP if not localhost.`);
   console.log(`=============================================================\n`);
 });

@@ -1,101 +1,117 @@
 const net = require('net');
 const stateService = require('../services/stateService');
 
-let tcpServer = null;
-const activeSockets = new Set();
+let tcpClient = null;
+let reconnectTimer = null;
+let isConnecting = false;
+let buffer = '';
 
-function initTcpServer(port = 7000, host = '0.0.0.0') {
-  tcpServer = net.createServer((socket) => {
-    const clientAddress = `${socket.remoteAddress}:${socket.remotePort}`;
-    console.log(`\n======================================================`);
-    console.log(`📱 [TCP] Android device CONNECTED from ${clientAddress}`);
-    console.log(`======================================================`);
+const RECONNECT_DELAY_MS = 3000;
 
-    activeSockets.add(socket);
-    stateService.setAndroidConnected(true, activeSockets.size);
+function initTcpClient(port = 7000, host = '127.0.0.1') {
+  console.log(`🔌 [TCP CLIENT] Will connect to Android TCP Server at ${host}:${port}`);
+  connect(host, port);
+}
 
-    let buffer = '';
+function connect(host, port) {
+  if (isConnecting) return;
+  isConnecting = true;
 
-    // Receive data from Android
-    socket.on('data', (chunk) => {
-      const rawString = chunk.toString();
-      console.log(`📩 [TCP INCOMING] Raw bytes from Android (${clientAddress}): ${rawString.trim()}`);
-      buffer += rawString;
+  console.log(`📡 [TCP CLIENT] Attempting connection to Android at ${host}:${port}...`);
 
-      // Process complete JSON objects (supports newline-delimited JSON or standalone chunks)
-      let boundaryIndex;
-      while ((boundaryIndex = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, boundaryIndex).trim();
-        buffer = buffer.slice(boundaryIndex + 1);
-        if (line) {
-          processRawMessage(line, socket);
-        }
-      }
+  const socket = new net.Socket();
+  tcpClient = socket;
+  buffer = '';
 
-      // If no newline, try parsing the whole trimmed buffer if it looks like complete JSON
-      if (buffer.trim().startsWith('{') && buffer.trim().endsWith('}')) {
-        processRawMessage(buffer.trim(), socket);
-        buffer = '';
-      }
+  socket.connect(port, host, () => {
+    isConnecting = false;
+    console.log('\n======================================================');
+    console.log(`📱 [TCP CLIENT] Connected to Android TCP Server at ${host}:${port}`);
+    console.log('======================================================');
+
+    stateService.setAndroidConnected(true, 1);
+
+    // Send a registration handshake so Android knows the server connected
+    const reg = JSON.stringify({
+      type: 'REGISTRATION',
+      client: 'NodeJS Web Server',
+      timestamp: new Date().toISOString()
     });
-
-    // Android client disconnected
-    socket.on('end', () => {
-      console.log(`📱 [TCP] Android client initiated disconnect: ${clientAddress}`);
-    });
-
-    socket.on('close', (hadError) => {
-      console.log(`📱 [TCP] Android socket CLOSED (${clientAddress})${hadError ? ' due to transmission error' : ''}`);
-      activeSockets.delete(socket);
-      stateService.setAndroidConnected(activeSockets.size > 0, activeSockets.size);
-    });
-
-    // Handle TCP Socket errors gracefully without crashing the server
-    socket.on('error', (err) => {
-      console.error(`⚠️ [TCP ERROR] Socket error with ${clientAddress}:`, err.message);
-      activeSockets.delete(socket);
-      stateService.setAndroidConnected(activeSockets.size > 0, activeSockets.size);
-    });
+    socket.write(reg + '\n');
   });
 
-  tcpServer.on('error', (err) => {
-    console.error(`❌ [TCP SERVER ERROR] Fatal TCP Server error:`, err.message);
+  socket.on('data', (chunk) => {
+    const rawString = chunk.toString();
+    console.log(`📩 [TCP CLIENT] Data from Android: ${rawString.trim()}`);
+    buffer += rawString;
+
+    let boundaryIndex;
+    while ((boundaryIndex = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, boundaryIndex).trim();
+      buffer = buffer.slice(boundaryIndex + 1);
+      if (line) processRawMessage(line, socket);
+    }
+
+    // Handle JSON without trailing newline
+    if (buffer.trim().startsWith('{') && buffer.trim().endsWith('}')) {
+      processRawMessage(buffer.trim(), socket);
+      buffer = '';
+    }
   });
 
-  tcpServer.listen(port, host, () => {
-    console.log(`🚀 [TCP SERVER] Listening for Android TCP connections on ${host}:${port}`);
+  socket.on('close', () => {
+    console.log(`🔴 [TCP CLIENT] Connection to Android closed. Reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`);
+    isConnecting = false;
+    stateService.setAndroidConnected(false, 0);
+    scheduleReconnect(host, port);
   });
 
-  return tcpServer;
+  socket.on('error', (err) => {
+    console.error(`⚠️ [TCP CLIENT ERROR] ${err.message} — retrying in ${RECONNECT_DELAY_MS / 1000}s...`);
+    isConnecting = false;
+    stateService.setAndroidConnected(false, 0);
+    socket.destroy();
+    scheduleReconnect(host, port);
+  });
+}
+
+function scheduleReconnect(host, port) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => connect(host, port), RECONNECT_DELAY_MS);
 }
 
 function processRawMessage(rawMessageString, socket) {
   try {
     const parsedData = JSON.parse(rawMessageString);
-    
-    // Validation
+
     if (!parsedData || typeof parsedData !== 'object') {
       console.warn(`⚠️ [TCP VALIDATION] Ignored non-object payload:`, rawMessageString);
       return;
     }
 
-    if (!parsedData.message && !parsedData.alertType && !parsedData.type) {
-      console.warn(`⚠️ [TCP VALIDATION] Missing essential message fields in payload:`, parsedData);
+    // Ignore registration/ping messages, only process ALERT payloads
+    if (parsedData.type === 'REGISTRATION' || parsedData.type === 'PING') {
+      console.log(`ℹ️ [TCP CLIENT] Received handshake: ${parsedData.type}`);
       return;
     }
 
-    console.log(`✅ [TCP PARSED & VALIDATED]:`, JSON.stringify(parsedData, null, 2));
+    if (!parsedData.message && !parsedData.alertType && !parsedData.type) {
+      console.warn(`⚠️ [TCP VALIDATION] Missing essential fields:`, parsedData);
+      return;
+    }
 
-    // Store and forward to React clients via Socket.IO
+    console.log(`✅ [TCP CLIENT PARSED & VALIDATED]:`, JSON.stringify(parsedData, null, 2));
+
+    // Store and broadcast to React clients via Socket.IO
     stateService.setLatestMessage(parsedData);
 
-    // Send ACK back to Android if socket is still writable
-    if (socket && socket.writable) {
+    // Send ACK back to Android
+    if (socket && !socket.destroyed) {
       socket.write(JSON.stringify({ status: 'ACK', receivedAt: new Date().toISOString() }) + '\n');
     }
   } catch (err) {
-    console.error(`❌ [TCP PARSE ERROR] Invalid JSON received from Android: "${rawMessageString}" - Error: ${err.message}`);
+    console.error(`❌ [TCP CLIENT PARSE ERROR] Invalid JSON: "${rawMessageString}" — ${err.message}`);
   }
 }
 
-module.exports = { initTcpServer };
+module.exports = { initTcpServer: initTcpClient }; // keep export name compatible with server.js
