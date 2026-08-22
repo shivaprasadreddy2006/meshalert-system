@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio, Shield, User, ArrowRight, Smartphone } from 'lucide-react';
+import { Radio, Shield, User, ArrowRight, Smartphone, Activity } from 'lucide-react';
 import { unlockAudio } from '../services/audioAlarm';
 
 export default function RoleSelect({ onSelectRole, androidConnected, deviceIp }) {
@@ -8,11 +8,11 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
     onSelectRole(role);
   };
 
-  const displayIp = deviceIp && deviceIp !== '127.0.0.1' ? deviceIp : null;
+  const displayIp = deviceIp || 'Detecting...';
 
   return (
     <div className="min-h-[75vh] flex items-center justify-center p-3 sm:p-4">
-      <div className="max-w-md w-full space-y-6 text-center">
+      <div className="max-w-md w-full space-y-5 text-center">
         
         {/* Header */}
         <div className="space-y-2">
@@ -24,8 +24,39 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
             Select Your View
           </h1>
           <p className="text-xs sm:text-sm text-slate-400">
-            Choose your interface mode to monitor localized BLE mesh alerts.
+            Real-time BLE mesh emergency monitor & broadcast station.
           </p>
+        </div>
+
+        {/* Prominent Device IP & TCP Target Card */}
+        <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-4 text-left space-y-2.5 shadow-lg">
+          <div className="flex items-center justify-between border-b border-dark-700/60 pb-2">
+            <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              Connected Device IP
+            </span>
+            <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+              androidConnected 
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse' 
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+            }`}>
+              {androidConnected ? 'TCP Connected 🟢' : 'Connecting TCP (Port 7000) ⏳'}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-slate-400">Device IP Address:</span>
+            <strong className="text-emerald-400 text-sm font-bold bg-dark-950 px-2.5 py-1 rounded-lg border border-dark-700">
+              {displayIp}
+            </strong>
+          </div>
+
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-slate-400">TCP Transfer Target:</span>
+            <span className="text-slate-200">
+              {displayIp !== 'Detecting...' ? `${displayIp}:7000` : 'Waiting for IP...'}
+            </span>
+          </div>
         </div>
 
         {/* 2 Choices: Client vs Admin */}
@@ -73,21 +104,6 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
             <ArrowRight className="w-5 h-5 text-slate-600 group-hover:text-amber-400 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
           </button>
 
-        </div>
-
-        {/* Live Status & IP indicator */}
-        <div className="space-y-1.5 pt-1 text-xs font-mono">
-          <div className="text-slate-400 flex items-center justify-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${androidConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-            <span>Android TCP: <strong className={androidConnected ? 'text-emerald-400' : 'text-rose-400'}>{androidConnected ? 'Connected 🟢' : 'Connecting 🔴'}</strong></span>
-          </div>
-
-          {displayIp && (
-            <div className="text-slate-400 flex items-center justify-center gap-1.5 text-[11px]">
-              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Target Device IP: <strong className="text-emerald-400">{displayIp}</strong></span>
-            </div>
-          )}
         </div>
 
       </div>
