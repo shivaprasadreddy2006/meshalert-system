@@ -1,0 +1,17 @@
+{
+  "name": "mas-server",
+  "version": "1.0.0",
+  "description": "TCP to WebSocket Bridge Backend for Mesh-based Alerting System",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test-tcp": "node test-tcp-client.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}

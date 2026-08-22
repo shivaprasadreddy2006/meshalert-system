@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    
+    <!-- Primary Theme Colors -->
+    <color name="primary">#1E88E5</color>
+    <color name="primary_dark">#1565C0</color>
+    <color name="primary_light">#BBDEFB</color>
+    <color name="accent_mesh">#6200EA</color>
+    <color name="accent_mesh_light">#EDE7F6</color>
+    
+    <!-- Status & Diagnostic Colors -->
+    <color name="status_connected">#2E7D32</color>
+    <color name="status_connected_bg">#E8F5E9</color>
+    <color name="status_connecting">#E65100</color>
+    <color name="status_connecting_bg">#FFF3E0</color>
+    <color name="status_disconnected">#C62828</color>
+    <color name="status_disconnected_bg">#FFEBEE</color>
+    
+    <!-- Signal Quality Colors -->
+    <color name="signal_excellent">#2E7D32</color>
+    <color name="signal_good">#1565C0</color>
+    <color name="signal_fair">#EF6C00</color>
+    <color name="signal_poor">#C62828</color>
+
+    <!-- Card & Surface Colors -->
+    <color name="card_surface">#FFFFFF</color>
+    <color name="card_stroke">#E0E0E0</color>
+    <color name="log_console_bg">#1E1E24</color>
+    <color name="log_text_info">#B0BEC5</color>
+    <color name="log_text_success">#81C784</color>
+    <color name="log_text_warn">#FFB74D</color>
+    <color name="log_text_error">#E57373</color>
+    <color name="log_text_rx">#4FC3F7</color>
+    <color name="log_text_tx">#BA68C8</color>
+</resources>

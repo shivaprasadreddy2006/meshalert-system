@@ -1,0 +1,109 @@
+<resources>
+    <string name="app_name">BLE Mesh Helper</string>
+    <string name="action_settings">About</string>
+    <string name="first_fragment_label">BLE Mesh Dashboard</string>
+    <string name="second_fragment_label">Mesh Guide &amp; Details</string>
+    <string name="next">View Mesh Guide</string>
+    <string name="previous">Back to Dashboard</string>
+
+    <!-- Diagnostics Card -->
+    <string name="card_title_diagnostics">BLE &amp; System Diagnostics</string>
+    <string name="status_bt_enabled">Bluetooth: ON</string>
+    <string name="status_bt_disabled">Bluetooth: OFF</string>
+    <string name="status_ble_supported">BLE Supported: YES</string>
+    <string name="status_ble_unsupported">BLE Supported: NO</string>
+    <string name="status_phy_2m">2M PHY</string>
+    <string name="status_phy_coded">Coded PHY (Long Range)</string>
+    <string name="status_ext_adv">Extended Advertising</string>
+    <string name="status_batching">Offload Filtering</string>
+    <string name="btn_grant_permissions">Grant Missing Permissions</string>
+    <string name="btn_ignore_battery">Request Battery Exemption</string>
+    <string name="permissions_all_granted">All BLE Permissions Granted</string>
+    <string name="permissions_missing">Permissions Missing</string>
+
+    <!-- Web Bridge Card -->
+    <string name="card_title_web_bridge">🌐 Web Application Bridge</string>
+    <string name="web_bridge_desc">Forwards all received BLE mesh alerts to the centralized Web Application dashboard over TCP socket.</string>
+    <string name="hint_server_ip">Server IP (e.g. 10.0.2.2 or 192.168.x.x)</string>
+    <string name="hint_server_port">TCP Port</string>
+    <string name="switch_auto_forward">Auto-Forward Alerts to Web App</string>
+    <string name="btn_connect_bridge">Connect to Web App</string>
+    <string name="btn_test_bridge">Test Send to Web App</string>
+    <string name="bridge_status_disconnected">Bridge: DISCONNECTED</string>
+    <string name="bridge_status_connected">Bridge: CONNECTED (Port 7000)</string>
+
+    <!-- Background Service Card -->
+    <string name="card_title_service">Background Mesh Service &amp; Node Mode</string>
+    <string name="service_running_desc">Keeps connection active and allows this phone to broadcast as a reachable Mesh Node.</string>
+    <string name="switch_bg_service">Enable Background Service</string>
+    <string name="switch_mesh_server">Act as Mesh Proxy Node / Server</string>
+    <string name="switch_wakelock">CPU WakeLock (Prevent Sleep)</string>
+    <string name="service_status_active">Service Status: RUNNING (Foreground)</string>
+    <string name="service_status_stopped">Service Status: STOPPED</string>
+
+    <!-- Sample Mesh Alert Card -->
+    <string name="card_title_alert">🚨 Connectionless Mesh Alert System</string>
+    <string name="alert_desc">Broadcast an alert into the air! NO CONNECTION OR PAIRING NEEDED. Any nearby device running this app will immediately receive the alert and notify the user.</string>
+    <string name="btn_send_alert">🚨 Broadcast Mesh Alert to All Devices</string>
+    <string name="alert_level_emergency">Emergency (High Priority)</string>
+    <string name="alert_level_warning">Warning</string>
+    <string name="alert_level_info">Info Ping</string>
+    <string name="hint_alert_message">Alert message e.g. Node #1 Emergency</string>
+
+    <!-- Scanner Card -->
+    <string name="card_title_scanner">Mesh Node Scanner</string>
+    <string name="btn_start_scan">Start Mesh Scan</string>
+    <string name="btn_stop_scan">Stop Scan</string>
+    <string name="checkbox_filter_mesh">Mesh Proxy (0x1828) Only</string>
+    <string name="no_devices_found">No BLE Mesh devices found yet. Tap \'Start Mesh Scan\' to search.</string>
+    <string name="scanning_indicator">Scanning for BLE Mesh Proxy nodes…</string>
+
+    <!-- Connection Card -->
+    <string name="card_title_connection">Active Mesh Connection</string>
+    <string name="conn_state_disconnected">DISCONNECTED</string>
+    <string name="conn_state_connecting">CONNECTING…</string>
+    <string name="conn_state_discovering">DISCOVERING SERVICES…</string>
+    <string name="conn_state_ready">CONNECTED &amp; READY (Mesh Proxy)</string>
+    <string name="conn_state_error">CONNECTION ERROR</string>
+    <string name="label_no_device_connected">No BLE Mesh node connected (Alert broadcast works connectionless).</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="label_rssi">Signal (RSSI):</string>
+    <string name="label_mtu">MTU:</string>
+    <string name="label_phy">PHY:</string>
+    <string name="label_services">Discovered Services:</string>
+
+    <!-- Packet & Traffic Card -->
+    <string name="card_title_traffic">Mesh Diagnostics &amp; Traffic</string>
+    <string name="label_packets_tx">TX Packets: 0</string>
+    <string name="label_packets_rx">RX Packets: 0</string>
+    <string name="label_bytes_total">Bytes: 0 B</string>
+    <string name="btn_send_pdu">Send PDU</string>
+    <string name="btn_send_ping">Send Mesh Ping</string>
+    <string name="btn_set_filter">Config Whitelist Filter</string>
+    <string name="hint_hex_payload">Hex payload e.g. 00 01 A0 B1</string>
+
+    <!-- Log Console -->
+    <string name="card_title_logs">Live Diagnostic Log Console</string>
+    <string name="btn_clear_logs">Clear</string>
+    <string name="btn_copy_logs">Copy</string>
+    <string name="empty_logs">Logs will appear here in real time…</string>
+
+    <!-- Notification Strings -->
+    <string name="notification_channel_name">BLE Mesh Background Service</string>
+    <string name="notification_channel_desc">Keeps the BLE Mesh network connected in the background.</string>
+    <string name="notification_title">BLE Mesh Helper Active</string>
+    <string name="notification_text_disconnected">Monitoring background Mesh network (Idle)</string>
+    <string name="notification_text_connected">Connected to %1$s | RSSI: %2$d dBm | RX: %3$d TX: %4$d</string>
+
+    <!-- Mesh Guide -->
+    <string name="mesh_guide_text">
+        <b>Bluetooth Mesh Protocol Guide:</b><br/><br/>
+        <b>1. Connectionless Mesh Flooding / Beacons:</b><br/>
+        You do <b>NOT</b> need to connect to any device to receive or send alerts! Alerts are broadcasted directly into the air via BLE Advertising packets. Any device running the background service will detect and display the alert.<br/><br/>
+        <b>2. Mesh Proxy Service (0x1828):</b><br/>
+        Allows 1-to-1 point-to-point GATT streaming and proxy filtering.<br/><br/>
+        <b>3. Background Operation:</b><br/>
+        The app runs a foreground connected device service with CPU wakelock support to continuously scan and receive alerts even when the device is locked.
+    </string>
+    <string name="lorem_ipsum">Bluetooth Mesh Helper Reference Documentation</string>
+</resources>

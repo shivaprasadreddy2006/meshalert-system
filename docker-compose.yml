@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mesh-alert-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mesh-alert-system
+    restart: unless-stopped
+    ports:
+      - "5000:5000" # Web Dashboard & WebSocket
+      - "7000:7000" # Android Raw TCP Socket
+    environment:
+      - PORT=5000
+      - TCP_PORT=7000
+      - NODE_ENV=production
