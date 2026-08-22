@@ -1,5 +1,19 @@
 const { Server } = require('socket.io');
 const stateService = require('../services/stateService');
+const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
+
+function getSocketIp(socket) {
+  let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  if (ip && typeof ip === 'string') {
+    if (ip.includes(',')) {
+      ip = ip.split(',')[0].trim();
+    }
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.replace('::ffff:', '');
+    }
+  }
+  return ip || '127.0.0.1';
+}
 
 function initSocketServer(httpServer) {
   const io = new Server(httpServer, {
@@ -13,10 +27,40 @@ function initSocketServer(httpServer) {
   stateService.setSocketIO(io);
 
   io.on('connection', (socket) => {
-    console.log(`💻 [WEB SOCKET] React UI Client connected: ${socket.id}`);
+    const clientIp = getSocketIp(socket);
+    console.log(`💻 [WEB SOCKET] Client connected: ${socket.id} (Client IP: ${clientIp})`);
+
+    // Track detected client IP
+    stateService.setDetectedClientIp(clientIp);
+
+    // Auto-update target host if currently set to localhost/127.0.0.1 and a real external IP connects
+    const currentState = stateService.getState();
+    if ((currentState.targetDeviceIp === '127.0.0.1' || currentState.targetDeviceIp === 'localhost') &&
+        clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1' && !clientIp.startsWith('10.') && !clientIp.startsWith('192.168.')) {
+      console.log(`✨ [AUTO-IP] Detected remote client IP ${clientIp}, automatically targeting TCP to this device...`);
+      setTargetHost(clientIp, currentState.targetDevicePort || 7000);
+    }
 
     // Send immediate snapshot of current system state
-    socket.emit('initial_state', stateService.getState());
+    socket.emit('initial_state', {
+      ...stateService.getState(),
+      yourDetectedIp: clientIp,
+      targetInfo: getTargetInfo()
+    });
+
+    // Client requests setting or changing target IP
+    socket.on('device:set_target_ip', (data) => {
+      const targetIp = (data?.ip || clientIp).trim();
+      const targetPort = parseInt(data?.port, 10) || 7000;
+      console.log(`📱 [SOCKET] Setting target IP to: ${targetIp}:${targetPort} (Requested by ${socket.id})`);
+      setTargetHost(targetIp, targetPort);
+    });
+
+    // Client requests auto-detection using their own IP
+    socket.on('device:auto_detect_ip', () => {
+      console.log(`📱 [SOCKET] Auto-targeting device IP: ${clientIp}:7000`);
+      setTargetHost(clientIp, 7000);
+    });
 
     // Admin can clear active alerts
     socket.on('admin:clear_alert', () => {
@@ -25,7 +69,7 @@ function initSocketServer(httpServer) {
     });
 
     socket.on('disconnect', () => {
-      console.log(`💻 [WEB SOCKET] React UI Client disconnected: ${socket.id}`);
+      console.log(`💻 [WEB SOCKET] Client disconnected: ${socket.id}`);
     });
   });
 

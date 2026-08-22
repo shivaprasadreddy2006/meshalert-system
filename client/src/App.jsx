@@ -10,6 +10,9 @@ import { playEmergencyAlarm, stopEmergencyAlarm, unlockAudio } from './services/
 export default function App() {
   const [role, setRole] = useState(null); // null | 'client' | 'admin'
   const [androidConnected, setAndroidConnected] = useState(false);
+  const [targetDeviceIp, setTargetDeviceIp] = useState('127.0.0.1');
+  const [targetDevicePort, setTargetDevicePort] = useState(7000);
+  const [detectedClientIp, setDetectedClientIp] = useState(null);
   const [alert, setAlert] = useState(null);
   const [alertHistory, setAlertHistory] = useState([]);
   const [showFullScreen, setShowFullScreen] = useState(false);
@@ -28,6 +31,9 @@ export default function App() {
       if (data) {
         setAndroidConnected(Boolean(data.androidConnected));
         setAlert(data.latestMessage || null);
+        if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
+        if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
+        if (data.yourDetectedIp) setDetectedClientIp(data.yourDetectedIp);
         if (data.alertHistory && Array.isArray(data.alertHistory)) {
           setAlertHistory(data.alertHistory);
         }
@@ -38,9 +44,24 @@ export default function App() {
     socket.on('android:status', (data) => {
       console.log('📱 [TCP STATUS] Android connection updated:', data);
       setAndroidConnected(Boolean(data.androidConnected));
+      if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
+      if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
     });
 
-    // 3. Live Emergency Alert from Android TCP / Web Bridge
+    // 3. Dynamic Target IP updated
+    socket.on('device:target_updated', (data) => {
+      console.log('🔄 [TARGET IP UPDATED]:', data);
+      if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
+      if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
+      setAndroidConnected(Boolean(data.androidConnected));
+    });
+
+    // 4. Detected client IP
+    socket.on('device:detected_ip', (data) => {
+      if (data.detectedClientIp) setDetectedClientIp(data.detectedClientIp);
+    });
+
+    // 5. Live Emergency Alert from Android TCP / Web Bridge
     socket.on('emergency:alert', (newAlert) => {
       console.log('🚨 [ALERT RECEIVED] Emergency broadcast:', newAlert);
       setAlert(newAlert);
@@ -56,7 +77,7 @@ export default function App() {
       playEmergencyAlarm();
     });
 
-    // 4. Alert Cleared Event
+    // 6. Alert Cleared Event
     socket.on('alert:cleared', () => {
       console.log('✅ [ALERT CLEARED]');
       setAlert(null);
@@ -74,12 +95,22 @@ export default function App() {
       window.removeEventListener('touchstart', handleFirstInteraction);
       socket.off('initial_state');
       socket.off('android:status');
+      socket.off('device:target_updated');
+      socket.off('device:detected_ip');
       socket.off('emergency:alert');
       socket.off('alert:cleared');
       socket.off('disconnect');
       stopEmergencyAlarm();
     };
   }, []);
+
+  const handleSetTargetIp = (ip, port = 7000) => {
+    socket.emit('device:set_target_ip', { ip, port });
+  };
+
+  const handleAutoDetectIp = () => {
+    socket.emit('device:auto_detect_ip');
+  };
 
   const handleClearAlert = () => {
     stopEmergencyAlarm();
@@ -106,6 +137,7 @@ export default function App() {
         role={role} 
         onSwitchRole={() => setRole(null)} 
         androidConnected={androidConnected}
+        targetDeviceIp={targetDeviceIp}
         hasActiveAlert={Boolean(alert)}
         onOpenFullScreen={() => setShowFullScreen(true)}
       />
@@ -115,18 +147,28 @@ export default function App() {
         {!role ? (
           <RoleSelect 
             onSelectRole={(selectedRole) => setRole(selectedRole)} 
-            androidConnected={androidConnected} 
+            androidConnected={androidConnected}
+            targetDeviceIp={targetDeviceIp} 
           />
         ) : role === 'client' ? (
           <ClientDashboard 
-            androidConnected={androidConnected} 
+            androidConnected={androidConnected}
+            targetDeviceIp={targetDeviceIp}
+            detectedClientIp={detectedClientIp}
+            onAutoDetectIp={handleAutoDetectIp}
+            onSetTargetIp={handleSetTargetIp}
             alert={alert} 
             alertHistory={alertHistory}
             onOpenFullScreen={() => setShowFullScreen(true)}
           />
         ) : (
           <AdminDashboard 
-            androidConnected={androidConnected} 
+            androidConnected={androidConnected}
+            targetDeviceIp={targetDeviceIp}
+            targetDevicePort={targetDevicePort}
+            detectedClientIp={detectedClientIp}
+            onSetTargetIp={handleSetTargetIp}
+            onAutoDetectIp={handleAutoDetectIp}
             alert={alert} 
             alertHistory={alertHistory}
             onClearAlert={handleClearAlert} 

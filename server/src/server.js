@@ -8,16 +8,47 @@ const fs = require('fs');
 
 dotenv.config();
 
-const { initTcpServer } = require('./tcp/tcpServer');
+const { initTcpServer, setTargetHost } = require('./tcp/tcpServer');
 const { initSocketServer } = require('./socket/socketServer');
+const stateService = require('./services/stateService');
 const testRoutes = require('./routes/testRoutes');
 
 const app = express();
 const httpServer = http.createServer(app);
 
+// Enable trust proxy so req.ip and X-Forwarded-For work correctly behind Railway / Cloudflare / Reverse Proxies
+app.set('trust proxy', true);
+
 // Middleware
 app.use(cors({ origin: '*' }));
 app.use(express.json());
+
+// Helper: Extract clean client IP
+function getClientIp(req) {
+  let ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip;
+  if (ip && typeof ip === 'string') {
+    if (ip.includes(',')) {
+      ip = ip.split(',')[0].trim();
+    }
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.replace('::ffff:', '');
+    }
+  }
+  return ip || '127.0.0.1';
+}
+
+// Global IP detection middleware
+app.use((req, res, next) => {
+  const clientIp = getClientIp(req);
+  stateService.setDetectedClientIp(clientIp);
+
+  // If header 'x-target-device: me' is provided, auto-set target IP
+  if (req.headers['x-target-device'] === 'me' && clientIp && clientIp !== '127.0.0.1') {
+    setTargetHost(clientIp);
+  }
+
+  next();
+});
 
 // API Routes
 app.use('/api', testRoutes);
@@ -44,10 +75,14 @@ if (staticDir) {
   });
 } else {
   app.get('/', (req, res) => {
+    const clientIp = getClientIp(req);
     res.json({
       name: 'Mesh-based Alerting System Bridge (Team: The Inevitables)',
       version: '1.0.0',
-      tcpStatus: 'LISTENING',
+      deployment: 'Railway / Cloud Container',
+      detectedClientIp: clientIp,
+      targetAndroidDevice: stateService.getState().targetDeviceIp,
+      tcpStatus: stateService.getState().androidConnected ? 'CONNECTED' : 'CONNECTING',
       httpStatus: 'OPERATIONAL',
       hint: 'Build client with "npm run build" in /client to serve Web UI here'
     });
@@ -70,27 +105,27 @@ function getLocalIPs() {
 
 // Configurable Ports
 const HTTP_PORT = process.env.PORT || 5000;
-const TCP_PORT = process.env.TCP_PORT || 7000;
+const TCP_PORT = parseInt(process.env.TCP_PORT, 10) || 7000;
 const ANDROID_HOST = process.env.ANDROID_HOST || '127.0.0.1';
 
 // Initialize Socket.IO
 initSocketServer(httpServer);
 
-// Start HTTP Server & Native TCP Server
+// Start HTTP Server & Native TCP Client
 httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
 
-  // Connect TCP Client to Android TCP Server
+  // Connect TCP Client to configured Android TCP Server (or detected device IP)
   initTcpServer(TCP_PORT, ANDROID_HOST);
 
   console.log(`\n=============================================================`);
-  console.log(`🚀 MESH ALERT SYSTEM — UNIFIED PRODUCTION SERVER`);
+  console.log(`🚀 MESH ALERT SYSTEM — UNIFIED PRODUCTION SERVER (RAILWAY)`);
   console.log(`   Team: The Inevitables`);
   console.log(`=============================================================`);
   console.log(`📡 Web UI & Socket.IO URL: http://${primaryIP}:${HTTP_PORT}`);
-  console.log(`📱 TCP Client → Android:   ${ANDROID_HOST}:${TCP_PORT}`);
-  console.log(`👉 Node.js connects OUT to Android's TCP Server.`);
-  console.log(`   Set ANDROID_HOST env var to the Android device IP if not localhost.`);
+  console.log(`📱 TCP Client Target:      ${ANDROID_HOST}:${TCP_PORT}`);
+  console.log(`👉 In Railway, server dynamically connects to accessing device's IP!`);
+  console.log(`   Hit /api/device/auto-connect from your phone to bind target IP.`);
   console.log(`=============================================================\n`);
 });

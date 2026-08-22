@@ -1,12 +1,75 @@
 const express = require('express');
 const router = express.Router();
 const stateService = require('../services/stateService');
+const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
 
-// Get current state snapshot
+// Helper to extract clean client IP behind Railway / Reverse Proxy
+function getClientIp(req) {
+  let ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip;
+  if (ip && typeof ip === 'string') {
+    if (ip.includes(',')) {
+      ip = ip.split(',')[0].trim();
+    }
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.replace('::ffff:', '');
+    }
+  }
+  return ip || '127.0.0.1';
+}
+
+// Get current system & device connection status
 router.get('/status', (req, res) => {
+  const clientIp = getClientIp(req);
   res.json({
     success: true,
+    clientIp,
+    targetInfo: getTargetInfo(),
     data: stateService.getState()
+  });
+});
+
+// View what IP the server sees for this client
+router.get('/device/my-ip', (req, res) => {
+  const clientIp = getClientIp(req);
+  stateService.setDetectedClientIp(clientIp);
+  res.json({
+    success: true,
+    yourIp: clientIp,
+    currentTarget: stateService.getState().targetDeviceIp,
+    currentTargetPort: stateService.getState().targetDevicePort,
+    androidConnected: stateService.getState().androidConnected
+  });
+});
+
+// Connect / Switch TCP client to a specified IP (or auto-detected client IP)
+router.post(['/device/connect', '/device/set-target-ip'], (req, res) => {
+  const clientIp = getClientIp(req);
+  const targetIp = (req.body?.ip || req.query?.ip || clientIp).trim();
+  const targetPort = parseInt(req.body?.port || req.query?.port, 10) || 7000;
+
+  console.log(`📡 [HTTP DEVICE CONNECT] Switching TCP target to: ${targetIp}:${targetPort} (Requested by: ${clientIp})`);
+  setTargetHost(targetIp, targetPort);
+
+  res.json({
+    success: true,
+    message: `TCP Client now targeting ${targetIp}:${targetPort}`,
+    targetIp,
+    targetPort,
+    detectedClientIp: clientIp
+  });
+});
+
+// Auto-connect endpoint: Sets target host to the device making the request
+router.all('/device/auto-connect', (req, res) => {
+  const clientIp = getClientIp(req);
+  console.log(`📡 [HTTP AUTO-CONNECT] Setting TCP target to caller IP: ${clientIp}:7000`);
+  setTargetHost(clientIp, 7000);
+
+  res.json({
+    success: true,
+    message: `TCP Client switched to caller IP: ${clientIp}:7000`,
+    connectedToIp: clientIp,
+    port: 7000
   });
 });
 

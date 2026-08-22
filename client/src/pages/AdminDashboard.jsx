@@ -1,15 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import StatusBadge from '../components/StatusBadge';
 import AlertCard from '../components/AlertCard';
-import { Send, Zap, Trash2, Radio, Flame, Users, HeartPulse, LogOut, Info, ShieldAlert, History } from 'lucide-react';
+import { Send, Zap, Trash2, Radio, Flame, Users, HeartPulse, LogOut, Info, ShieldAlert, History, Smartphone, Globe, RefreshCw, Check } from 'lucide-react';
 import { unlockAudio } from '../services/audioAlarm';
 
-export default function AdminDashboard({ androidConnected, alert, alertHistory = [], onClearAlert, onOpenFullScreen }) {
+export default function AdminDashboard({ 
+  androidConnected, 
+  targetDeviceIp = '127.0.0.1', 
+  targetDevicePort = 7000, 
+  detectedClientIp = null, 
+  onSetTargetIp, 
+  onAutoDetectIp, 
+  alert, 
+  alertHistory = [], 
+  onClearAlert, 
+  onOpenFullScreen 
+}) {
+  const [customIp, setCustomIp] = useState(targetDeviceIp);
+  const [customPort, setCustomPort] = useState(targetDevicePort);
   const [testArea, setTestArea] = useState('Floor 1');
   const [testPriority, setTestPriority] = useState('HIGH');
   const [testType, setTestType] = useState('FIRE');
   const [testMsg, setTestMsg] = useState('Fire detected on Floor 1. Move towards North Exit. Do not use elevators.');
   const [isSending, setIsSending] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    setCustomIp(targetDeviceIp);
+    setCustomPort(targetDevicePort);
+  }, [targetDeviceIp, targetDevicePort]);
+
+  const handleSaveIp = (e) => {
+    if (e) e.preventDefault();
+    if (onSetTargetIp && customIp) {
+      onSetTargetIp(customIp.trim(), customPort);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 2000);
+    }
+  };
+
+  const handleUseMyIp = () => {
+    if (detectedClientIp) {
+      setCustomIp(detectedClientIp);
+      if (onSetTargetIp) {
+        onSetTargetIp(detectedClientIp, customPort);
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 2000);
+      }
+    } else if (onAutoDetectIp) {
+      onAutoDetectIp();
+    }
+  };
 
   const presets = [
     {
@@ -83,30 +124,87 @@ export default function AdminDashboard({ androidConnected, alert, alertHistory =
       {/* Header */}
       <div>
         <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-          Admin Incident Control Center
+          Incident Control & Device Bridge
         </h2>
         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Dispatch localized emergency broadcasts and monitor Android BLE Mesh connection.
+          Backend running on Cloud/Railway — connects to your phone's TCP Server on Port 7000.
         </p>
       </div>
 
       {/* Connection Statuses */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <StatusBadge
-          label="Android BLE Client"
+          label="Android TCP Server Connection"
           isConnected={androidConnected}
-          activeText="Connected"
-          inactiveText="Disconnected"
-          subtitle="Receiving packets from mobile mesh"
+          activeText="Connected 🟢"
+          inactiveText="Reconnecting 🔴"
+          subtitle={`Targeting ${targetDeviceIp}:${targetDevicePort}`}
         />
 
         <StatusBadge
-          label="TCP Bridge Server"
-          isConnected={androidConnected}
-          activeText="Active (Port 7000)"
-          inactiveText="Listening (Port 7000)"
-          subtitle="Raw socket listener ready"
+          label="Detected Client Device IP"
+          isConnected={Boolean(detectedClientIp)}
+          activeText={detectedClientIp || 'Detected'}
+          inactiveText="Detecting..."
+          subtitle="Your current device IP seen by backend"
         />
+      </div>
+
+      {/* Target Device IP Configuration Card */}
+      <div className="bg-dark-900/90 border border-dark-700/80 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-lg">
+        <div className="flex items-center justify-between pb-2 border-b border-dark-700/60">
+          <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
+            <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+            Target Android Device IP Binding
+          </span>
+          <span className="text-[10px] font-mono text-slate-400">Railway $\rightarrow$ Android TCP</span>
+        </div>
+
+        <form onSubmit={handleSaveIp} className="space-y-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="block text-slate-400 font-semibold mb-1">Android Phone IP Address</label>
+              <input
+                type="text"
+                value={customIp}
+                onChange={(e) => setCustomIp(e.target.value)}
+                placeholder="e.g. 103.21.x.x or 192.168.1.50"
+                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-400 font-semibold mb-1">TCP Port</label>
+              <input
+                type="number"
+                value={customPort}
+                onChange={(e) => setCustomPort(Number(e.target.value))}
+                placeholder="7000"
+                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 shadow-md shadow-blue-600/30"
+            >
+              {savedSuccess ? <Check className="w-3.5 h-3.5" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              <span>{savedSuccess ? 'Connected Target Updated!' : 'Set Target IP & Connect'}</span>
+            </button>
+
+            {detectedClientIp && (
+              <button
+                type="button"
+                onClick={handleUseMyIp}
+                className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>🎯 Use My Detected Device IP ({detectedClientIp})</span>
+              </button>
+            )}
+          </div>
+        </form>
       </div>
 
       {/* Active Alert Monitor */}

@@ -4,6 +4,9 @@ class StateService {
   constructor() {
     this.state = {
       androidConnected: false,
+      targetDeviceIp: process.env.ANDROID_HOST || '127.0.0.1',
+      targetDevicePort: parseInt(process.env.TCP_PORT, 10) || 7000,
+      detectedClientIp: null,
       latestMessage: null,
       lastMessageTime: null,
       tcpConnectionsCount: 0,
@@ -23,6 +26,28 @@ class StateService {
     };
   }
 
+  setTargetDevice(host, port = 7000) {
+    this.state.targetDeviceIp = host;
+    this.state.targetDevicePort = port;
+    console.log(`[STATE] Target Device IP updated: ${host}:${port}`);
+
+    if (this.io) {
+      this.io.emit('device:target_updated', {
+        targetDeviceIp: this.state.targetDeviceIp,
+        targetDevicePort: this.state.targetDevicePort,
+        androidConnected: this.state.androidConnected
+      });
+    }
+  }
+
+  setDetectedClientIp(ip) {
+    if (!ip) return;
+    this.state.detectedClientIp = ip;
+    if (this.io) {
+      this.io.emit('device:detected_ip', { detectedClientIp: ip });
+    }
+  }
+
   setAndroidConnected(status, count = 0) {
     this.state.androidConnected = status;
     this.state.tcpConnectionsCount = count;
@@ -31,7 +56,9 @@ class StateService {
     if (this.io) {
       this.io.emit('android:status', {
         androidConnected: this.state.androidConnected,
-        tcpConnectionsCount: this.state.tcpConnectionsCount
+        tcpConnectionsCount: this.state.tcpConnectionsCount,
+        targetDeviceIp: this.state.targetDeviceIp,
+        targetDevicePort: this.state.targetDevicePort
       });
     }
   }

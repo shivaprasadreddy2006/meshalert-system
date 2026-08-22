@@ -1,9 +1,17 @@
 import React from 'react';
 import StatusBadge from '../components/StatusBadge';
 import AlertCard from '../components/AlertCard';
-import { ShieldCheck, Info, History, MapPin, Clock, Flame, Users, HeartPulse, LogOut, ShieldAlert } from 'lucide-react';
+import { ShieldCheck, Info, History, MapPin, Clock, Flame, Users, HeartPulse, LogOut, ShieldAlert, Smartphone, Globe } from 'lucide-react';
 
-export default function ClientDashboard({ androidConnected, alert, alertHistory = [], onOpenFullScreen }) {
+export default function ClientDashboard({ 
+  androidConnected, 
+  targetDeviceIp = '127.0.0.1', 
+  detectedClientIp = null, 
+  onAutoDetectIp, 
+  alert, 
+  alertHistory = [], 
+  onOpenFullScreen 
+}) {
   const getSmallIcon = (type) => {
     switch (type) {
       case 'FIRE': return <Flame className="w-3.5 h-3.5 text-rose-400" />;
@@ -24,18 +32,38 @@ export default function ClientDashboard({ androidConnected, alert, alertHistory 
             Emergency Alert Monitor
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Real-time emergency broadcast receiver connected via Android BLE Mesh.
+            Cloud backend connected to Android BLE Mesh TCP Server.
           </p>
         </div>
 
         {/* Connection Status Badge */}
-        <StatusBadge
-          label="Android BLE Mesh Bridge"
-          isConnected={androidConnected}
-          activeText="Online & Relaying"
-          inactiveText="Waiting for Android Bridge"
-          subtitle={androidConnected ? "Receiving mesh packets over local TCP" : "Connect your phone on port 7000"}
-        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <StatusBadge
+            label="Android BLE Mesh TCP Bridge"
+            isConnected={androidConnected}
+            activeText="Online & Relaying 🟢"
+            inactiveText="Connecting 🔴"
+            subtitle={`Target: ${targetDeviceIp}:7000`}
+          />
+
+          <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between shadow-sm gap-3">
+            <div className="min-w-0">
+              <span className="text-xs sm:text-sm font-semibold text-slate-200 block truncate">Your Device IP</span>
+              <span className="text-[11px] text-slate-400 block truncate">{detectedClientIp || 'Detecting...'}</span>
+            </div>
+            
+            {detectedClientIp && (
+              <button
+                onClick={onAutoDetectIp}
+                className="px-3 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-mono font-bold transition flex items-center gap-1 shrink-0"
+                title="Tell Cloud Backend to connect TCP to this phone"
+              >
+                <Globe className="w-3 h-3" />
+                <span>Bind Target</span>
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Primary Alert Section */}
