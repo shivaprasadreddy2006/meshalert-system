@@ -1,149 +1,123 @@
 const express = require('express');
 const router = express.Router();
 const stateService = require('../services/stateService');
-const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
 
-// Helper to extract clean client IP behind Railway / Reverse Proxy
+// Helper: extract clean client IP behind Railway / Reverse Proxy
 function getClientIp(req) {
-  let ip = req.headers['cf-connecting-ip'] ||
-           req.headers['x-real-ip'] ||
-           req.headers['x-client-ip'] ||
-           req.headers['x-forwarded-for'] ||
-           req.ip ||
-           req.socket?.remoteAddress;
+  let ip =
+    req.headers['cf-connecting-ip'] ||
+    req.headers['x-real-ip'] ||
+    req.headers['x-client-ip'] ||
+    (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    '127.0.0.1';
 
-  if (ip && typeof ip === 'string') {
-    if (ip.includes(',')) {
-      ip = ip.split(',')[0].trim();
-    }
-    if (ip.startsWith('::ffff:')) {
-      ip = ip.replace('::ffff:', '');
-    }
+  if (ip && ip.startsWith('::ffff:')) {
+    ip = ip.replace('::ffff:', '');
   }
   return ip || '127.0.0.1';
 }
 
-// Debug endpoint to inspect all headers and detected IP
+// ── Debug: inspect all headers ──────────────────────────────────────────────
 router.get('/debug', (req, res) => {
-  const detectedIp = getClientIp(req);
   res.json({
-    detectedIp,
-    headers: {
-      'cf-connecting-ip': req.headers['cf-connecting-ip'],
-      'x-real-ip': req.headers['x-real-ip'],
-      'x-client-ip': req.headers['x-client-ip'],
-      'x-forwarded-for': req.headers['x-forwarded-for'],
-      'host': req.headers['host'],
-      'user-agent': req.headers['user-agent']
-    },
-    expressIp: req.ip,
-    socketRemoteAddress: req.socket?.remoteAddress,
+    detectedIp: getClientIp(req),
+    headers: req.headers,
     state: stateService.getState()
   });
 });
 
-// Get current system & device connection status
-router.get('/status', (req, res) => {
-  const clientIp = getClientIp(req);
-  res.json({
-    success: true,
-    clientIp,
-    targetInfo: getTargetInfo(),
-    data: stateService.getState()
-  });
-});
-
-// View what IP the server sees for this client
+// ── What is my IP? (browser fetch fallback) ─────────────────────────────────
 router.get('/device/my-ip', (req, res) => {
-  const clientIp = getClientIp(req);
-  console.log(`🔍 [/api/device/my-ip] Request from: ${clientIp}`);
-
-  if (clientIp) {
-    stateService.setDetectedClientIp(clientIp);
-    if (clientIp !== '127.0.0.1') {
-      setTargetHost(clientIp, 7000);
-    }
-  }
-
-  const state = stateService.getState();
-  res.json({
-    success: true,
-    yourIp: clientIp,
-    currentTarget: state.targetDeviceIp || clientIp,
-    currentTargetPort: state.targetDevicePort || 7000,
-    androidConnected: state.androidConnected
-  });
+  const ip = getClientIp(req);
+  console.log(`🔍 [/api/device/my-ip] Caller IP: ${ip}`);
+  res.json({ success: true, yourIp: ip });
 });
 
-// Connect / Switch TCP client to a specified IP (or auto-detected client IP)
-router.post(['/device/connect', '/device/set-target-ip'], (req, res) => {
-  const clientIp = getClientIp(req);
-  const targetIp = (req.body?.ip || req.query?.ip || clientIp).trim();
-  const targetPort = parseInt(req.body?.port || req.query?.port, 10) || 7000;
-
-  console.log(`📡 [HTTP DEVICE CONNECT] Switching TCP target to: ${targetIp}:${targetPort} (Requested by: ${clientIp})`);
-  setTargetHost(targetIp, targetPort);
-
-  res.json({
-    success: true,
-    message: `TCP Client now targeting ${targetIp}:${targetPort}`,
-    targetIp,
-    targetPort,
-    detectedClientIp: clientIp
-  });
+// ── Android Heartbeat: keeps "Connected" status alive ───────────────────────
+// Android app should POST here every ~10s to maintain the green badge
+router.post('/device/heartbeat', (req, res) => {
+  const ip = getClientIp(req);
+  console.log(`💓 [HEARTBEAT] Android device alive at: ${ip}`);
+  stateService.setAndroidConnected(true, ip);
+  res.json({ success: true, message: 'Heartbeat received', yourIp: ip });
 });
 
-// Auto-connect endpoint: Sets target host to the device making the request
+// ── Android sends this when app connects ────────────────────────────────────
 router.all('/device/auto-connect', (req, res) => {
-  const clientIp = getClientIp(req);
-  console.log(`📡 [HTTP AUTO-CONNECT] Setting TCP target to caller IP: ${clientIp}:7000`);
-  setTargetHost(clientIp, 7000);
-
+  const ip = getClientIp(req);
+  console.log(`🤝 [AUTO-CONNECT] Android device connected from: ${ip}`);
+  stateService.setAndroidConnected(true, ip);
   res.json({
     success: true,
-    message: `TCP Client switched to caller IP: ${clientIp}:7000`,
-    connectedToIp: clientIp,
-    port: 7000
+    message: 'Connected to Mesh Alert Cloud Server',
+    serverTime: new Date().toISOString()
   });
 });
 
-// Production & Test Alert Ingestion Endpoint
+// ── MAIN: Emergency Alert from Android BLE Mesh ─────────────────────────────
+// Android app POSTs here when it receives/sends a BLE mesh alert
 router.post(['/alert', '/test/alert'], (req, res) => {
-  const payload = req.body && Object.keys(req.body).length > 0 ? req.body : {
-    type: 'ALERT',
-    alertType: 'FIRE',
-    priority: 'HIGH',
-    message: 'Fire detected on Floor 1. Move towards the North Exit. Do not use elevators.',
-    area: 'Floor 1',
-    timestamp: new Date().toISOString()
-  };
+  const senderIp = getClientIp(req);
 
-  console.log(`📡 [HTTP ALERT INGESTION] Alert payload received:`, payload);
-  const formatted = stateService.setLatestMessage(payload);
+  // Use test payload if body is empty
+  const payload =
+    req.body && Object.keys(req.body).length > 0
+      ? req.body
+      : {
+          type: 'ALERT',
+          alertType: 'FIRE',
+          priority: 'CRITICAL',
+          message: 'Fire detected on Floor 1. Move towards the North Exit. Do not use elevators.',
+          area: 'Floor 1',
+          sender: 'Test Node',
+          timestamp: new Date().toISOString()
+        };
 
-  res.json({
-    success: true,
-    message: 'Alert dispatched to WebSocket clients',
-    alert: formatted
-  });
-});
+  console.log(`🚨 [ALERT] Received from Android (${senderIp}):`, payload);
 
-// Development / Testing Endpoint: Toggle simulated Android TCP connection
-router.post('/test/toggle-connection', (req, res) => {
-  const current = stateService.getState().androidConnected;
-  const newStatus = !current;
-  stateService.setAndroidConnected(newStatus, newStatus ? 1 : 0);
+  // Mark Android as connected and broadcast the alert
+  stateService.setAndroidConnected(true, senderIp);
+  const formatted = stateService.setLatestMessage(payload, senderIp);
 
   res.json({
     success: true,
-    androidConnected: newStatus
+    message: 'Alert received and broadcast to all web clients',
+    alert: formatted,
+    receivedFrom: senderIp
   });
 });
 
-// Clear active alert
+// ── Status endpoint ──────────────────────────────────────────────────────────
+router.get('/status', (req, res) => {
+  res.json({
+    success: true,
+    state: stateService.getState()
+  });
+});
+
+// ── Admin: Clear active alert ────────────────────────────────────────────────
 router.post('/test/clear', (req, res) => {
   stateService.clearAlert();
   res.json({ success: true, message: 'Alert cleared' });
+});
+
+// ── Test: Fire a sample alert without Android app ────────────────────────────
+router.post('/test/trigger', (req, res) => {
+  const ip = getClientIp(req);
+  const sampleAlert = {
+    type: 'ALERT',
+    alertType: 'FIRE',
+    priority: 'CRITICAL',
+    message: 'Test: Fire detected on Floor 2! Evacuate immediately via staircase.',
+    area: 'Floor 2',
+    sender: 'Test Trigger',
+    timestamp: new Date().toISOString()
+  };
+  stateService.setAndroidConnected(true, ip);
+  const formatted = stateService.setLatestMessage(sampleAlert, ip);
+  res.json({ success: true, alert: formatted });
 });
 
 module.exports = router;

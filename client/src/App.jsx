@@ -10,111 +10,96 @@ import { playEmergencyAlarm, stopEmergencyAlarm, unlockAudio } from './services/
 export default function App() {
   const [role, setRole] = useState(null); // null | 'client' | 'admin'
   const [androidConnected, setAndroidConnected] = useState(false);
-  const [targetDeviceIp, setTargetDeviceIp] = useState(null);
-  const [targetDevicePort, setTargetDevicePort] = useState(7000);
-  const [detectedClientIp, setDetectedClientIp] = useState(null);
+  const [androidDeviceIp, setAndroidDeviceIp] = useState(null);
+  const [myPublicIp, setMyPublicIp] = useState(null);        // This browser device's real public IP
   const [alert, setAlert] = useState(null);
   const [alertHistory, setAlertHistory] = useState([]);
   const [showFullScreen, setShowFullScreen] = useState(false);
 
   useEffect(() => {
-    // Unlock Web Audio on any click/touch anywhere on the page
-    const handleFirstInteraction = () => {
-      unlockAudio();
-    };
+    // Unlock Web Audio on any click/touch
+    const handleFirstInteraction = () => unlockAudio();
     window.addEventListener('click', handleFirstInteraction, { once: true });
     window.addEventListener('touchstart', handleFirstInteraction, { once: true });
 
-    const BACKEND_URL = window.location.hostname === 'localhost' && window.location.port === '5173'
-      ? 'http://localhost:5000'
-      : window.location.origin;
-
-    // 1. Probe backend for detected client IP
-    fetch(`${BACKEND_URL}/api/device/my-ip`)
-      .then((res) => res.json())
+    // ── Step 1: Detect THIS browser device's real public IP ──────────────────
+    // api.ipify.org is the most reliable public IP lookup service available.
+    // Doing it in the browser bypasses all Railway proxy header issues.
+    fetch('https://api.ipify.org?format=json')
+      .then((r) => r.json())
       .then((data) => {
-        console.log('📡 [/api/device/my-ip result]:', data);
-        if (data) {
-          if (data.yourIp) setDetectedClientIp(data.yourIp);
-          if (data.currentTarget) setTargetDeviceIp(data.currentTarget);
-          if (data.currentTargetPort) setTargetDevicePort(data.currentTargetPort);
+        if (data && data.ip) {
+          console.log('🌐 [PUBLIC IP DETECTED]:', data.ip);
+          setMyPublicIp(data.ip);
+          // Report our real IP back to the backend so it can display it
+          socket.emit('device:report_ip', { ip: data.ip });
         }
       })
-      .catch((err) => console.error('Backend IP probe failed:', err));
+      .catch(() => {
+        // Fallback: try the backend's perspective of our IP
+        const BACKEND_URL =
+          window.location.port === '5173'
+            ? 'http://localhost:5000'
+            : window.location.origin;
 
-    // 2. Initial State Snapshot from Backend Socket
+        fetch(`${BACKEND_URL}/api/device/my-ip`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data && data.yourIp && data.yourIp !== '127.0.0.1') {
+              setMyPublicIp(data.yourIp);
+            }
+          })
+          .catch(() => {}); // Silent fallback
+      });
+
+    // ── Step 2: Socket.IO Real-time Events ───────────────────────────────────
+
+    // Initial state snapshot from server
     socket.on('initial_state', (data) => {
-      console.log('📡 [INIT STATE] Snapshot from backend:', data);
-      if (data) {
-        setAndroidConnected(Boolean(data.androidConnected));
-        setAlert(data.latestMessage || null);
-        if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
-        if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
-        if (data.yourDetectedIp) setDetectedClientIp(data.yourDetectedIp);
-        if (data.alertHistory && Array.isArray(data.alertHistory)) {
-          setAlertHistory(data.alertHistory);
-        }
+      console.log('📡 [INIT STATE]:', data);
+      if (!data) return;
+      setAndroidConnected(Boolean(data.androidConnected));
+      if (data.androidDeviceIp) setAndroidDeviceIp(data.androidDeviceIp);
+      setAlert(data.latestMessage || null);
+      if (data.alertHistory && Array.isArray(data.alertHistory)) {
+        setAlertHistory(data.alertHistory);
       }
     });
 
-    // 3. Android TCP Connection State Change
+    // Android device connected via HTTP POST
     socket.on('android:status', (data) => {
-      console.log('📱 [TCP STATUS] Android connection updated:', data);
+      console.log('📱 [ANDROID STATUS]:', data);
       setAndroidConnected(Boolean(data.androidConnected));
-      if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
-      if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
+      if (data.androidDeviceIp) setAndroidDeviceIp(data.androidDeviceIp);
     });
 
-    // 4. Dynamic Target IP updated from Backend
-    socket.on('device:target_updated', (data) => {
-      console.log('🔄 [TARGET IP UPDATED]:', data);
-      if (data.targetDeviceIp) setTargetDeviceIp(data.targetDeviceIp);
-      if (data.targetDevicePort) setTargetDevicePort(data.targetDevicePort);
-      setAndroidConnected(Boolean(data.androidConnected));
-    });
-
-    // 5. Detected client IP from Backend
-    socket.on('device:detected_ip', (data) => {
-      console.log('📱 [DETECTED IP EVENT]:', data);
-      if (data.detectedClientIp) setDetectedClientIp(data.detectedClientIp);
-    });
-
-    // 6. Live Emergency Alert from Android TCP / Web Bridge
+    // Emergency alert received from Android app
     socket.on('emergency:alert', (newAlert) => {
-      console.log('🚨 [ALERT RECEIVED] Emergency broadcast:', newAlert);
+      console.log('🚨 [ALERT]:', newAlert);
+      setAndroidConnected(true); // Android sent an alert so it's connected
+      if (newAlert.senderIp) setAndroidDeviceIp(newAlert.senderIp);
       setAlert(newAlert);
-
-      // Add to alert history
-      setAlertHistory((prev) => [
-        newAlert,
-        ...prev.filter((a) => a.id !== newAlert.id)
-      ].slice(0, 20));
-
-      // Trigger Full-Screen Alert Takeover & Web Audio Alarm!
+      setAlertHistory((prev) =>
+        [newAlert, ...prev.filter((a) => a.id !== newAlert.id)].slice(0, 20)
+      );
       setShowFullScreen(true);
       playEmergencyAlarm();
     });
 
-    // 7. Alert Cleared Event
+    // Alert cleared
     socket.on('alert:cleared', () => {
-      console.log('✅ [ALERT CLEARED]');
       setAlert(null);
       setShowFullScreen(false);
       stopEmergencyAlarm();
     });
 
-    // Fallback: If socket disconnects, mark as disconnected
-    socket.on('disconnect', () => {
-      setAndroidConnected(false);
-    });
+    socket.on('disconnect', () => setAndroidConnected(false));
 
     return () => {
       window.removeEventListener('click', handleFirstInteraction);
       window.removeEventListener('touchstart', handleFirstInteraction);
       socket.off('initial_state');
       socket.off('android:status');
-      socket.off('device:target_updated');
-      socket.off('device:detected_ip');
       socket.off('emergency:alert');
       socket.off('alert:cleared');
       socket.off('disconnect');
@@ -129,73 +114,62 @@ export default function App() {
     setAlert(null);
   };
 
-  const handleAcknowledgeAlert = () => {
-    stopEmergencyAlarm();
-    setShowFullScreen(false);
-  };
-
   const handleDismissFullScreen = () => {
     stopEmergencyAlarm();
     setShowFullScreen(false);
   };
 
-  // The active device IP to display
-  const activeDeviceIp = detectedClientIp || targetDeviceIp;
-
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      
-      {/* Top Navigation */}
-      <Navbar 
-        role={role} 
-        onSwitchRole={() => setRole(null)} 
+
+      <Navbar
+        role={role}
+        onSwitchRole={() => setRole(null)}
         androidConnected={androidConnected}
-        deviceIp={activeDeviceIp}
+        myPublicIp={myPublicIp}
+        androidDeviceIp={androidDeviceIp}
         hasActiveAlert={Boolean(alert)}
         onOpenFullScreen={() => setShowFullScreen(true)}
       />
 
-      {/* Main Role Content */}
       <main className="flex-1 px-3 sm:px-6 py-4 sm:py-6">
         {!role ? (
-          <RoleSelect 
-            onSelectRole={(selectedRole) => setRole(selectedRole)} 
+          <RoleSelect
+            onSelectRole={(r) => setRole(r)}
             androidConnected={androidConnected}
-            deviceIp={activeDeviceIp} 
+            myPublicIp={myPublicIp}
+            androidDeviceIp={androidDeviceIp}
           />
         ) : role === 'client' ? (
-          <ClientDashboard 
+          <ClientDashboard
             androidConnected={androidConnected}
-            targetDeviceIp={activeDeviceIp}
-            detectedClientIp={detectedClientIp}
-            alert={alert} 
+            androidDeviceIp={androidDeviceIp}
+            myPublicIp={myPublicIp}
+            alert={alert}
             alertHistory={alertHistory}
             onOpenFullScreen={() => setShowFullScreen(true)}
           />
         ) : (
-          <AdminDashboard 
+          <AdminDashboard
             androidConnected={androidConnected}
-            targetDeviceIp={activeDeviceIp}
-            targetDevicePort={targetDevicePort}
-            detectedClientIp={detectedClientIp}
-            alert={alert} 
+            androidDeviceIp={androidDeviceIp}
+            myPublicIp={myPublicIp}
+            alert={alert}
             alertHistory={alertHistory}
-            onClearAlert={handleClearAlert} 
+            onClearAlert={handleClearAlert}
             onOpenFullScreen={() => setShowFullScreen(true)}
           />
         )}
       </main>
 
-      {/* Full-Screen Emergency Alert Overlay */}
       {showFullScreen && alert && (
         <FullScreenAlert
           alert={alert}
           onDismiss={handleDismissFullScreen}
-          onAcknowledge={handleAcknowledgeAlert}
+          onAcknowledge={handleDismissFullScreen}
         />
       )}
 
-      {/* Responsive Footer */}
       <footer className="mt-auto border-t border-dark-700/60 bg-dark-900/50 py-3 px-4 text-center text-[11px] text-slate-500 font-mono">
         Mesh-based Alerting System with Localization Support • Team The Inevitables
       </footer>

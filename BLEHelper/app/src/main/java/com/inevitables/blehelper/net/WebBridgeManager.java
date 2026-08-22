@@ -127,6 +127,7 @@ public class WebBridgeManager {
                     mIsConnected = true;
                     log(TAG, "Connected to Railway Backend (" + baseUrl + ")", BleMeshManager.LOG_SUCCESS);
                     notifyStatus(true, "Connected to Cloud Backend 🟢");
+                    startHeartbeat(); // Keep the connection badge alive
                     if (callback != null) mMainHandler.post(() -> callback.onResult(true, "Connected to Railway Backend!"));
                 } else {
                     mIsConnected = false;
@@ -146,9 +147,52 @@ public class WebBridgeManager {
     }
 
     public void disconnect() {
+        stopHeartbeat();
         mIsConnected = false;
         notifyStatus(false, "Disconnected");
         log(TAG, "Disconnected from Web Bridge", BleMeshManager.LOG_WARN);
+    }
+
+    // ── Heartbeat ────────────────────────────────────────────────────────────
+    // Posts to /api/device/heartbeat every 10s so Railway keeps the
+    // "Android Connected 🟢" badge alive on the web dashboard.
+    private volatile boolean mHeartbeatRunning = false;
+
+    public void startHeartbeat() {
+        if (mHeartbeatRunning) return;
+        mHeartbeatRunning = true;
+        mExecutor.execute(() -> {
+            while (mHeartbeatRunning) {
+                try {
+                    URL url = new URL(getServerUrl() + "/api/device/heartbeat");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setConnectTimeout(4000);
+                    conn.setReadTimeout(4000);
+                    int code = conn.getResponseCode();
+                    conn.disconnect();
+                    if (code >= 200 && code < 300 && !mIsConnected) {
+                        mIsConnected = true;
+                        notifyStatus(true, "Cloud Backend 🟢");
+                    }
+                } catch (Exception e) {
+                    if (mIsConnected) {
+                        mIsConnected = false;
+                        notifyStatus(false, "Heartbeat lost");
+                    }
+                }
+                try {
+                    Thread.sleep(10_000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+    }
+
+    public void stopHeartbeat() {
+        mHeartbeatRunning = false;
     }
 
     /**

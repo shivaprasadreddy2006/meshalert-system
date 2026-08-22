@@ -1,19 +1,17 @@
 import React from 'react';
-import { Radio, Shield, User, ArrowRight, Smartphone, Activity } from 'lucide-react';
+import { Radio, Shield, User, ArrowRight, Smartphone, Globe } from 'lucide-react';
 import { unlockAudio } from '../services/audioAlarm';
 
-export default function RoleSelect({ onSelectRole, androidConnected, deviceIp }) {
+export default function RoleSelect({ onSelectRole, androidConnected, myPublicIp, androidDeviceIp }) {
   const handleSelect = (role) => {
     unlockAudio();
     onSelectRole(role);
   };
 
-  const displayIp = deviceIp || 'Detecting...';
-
   return (
     <div className="min-h-[75vh] flex items-center justify-center p-3 sm:p-4">
       <div className="max-w-md w-full space-y-5 text-center">
-        
+
         {/* Header */}
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono">
@@ -24,45 +22,60 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
             Select Your View
           </h1>
           <p className="text-xs sm:text-sm text-slate-400">
-            Real-time BLE mesh emergency monitor & broadcast station.
+            Real-time BLE mesh emergency monitor &amp; broadcast station.
           </p>
         </div>
 
-        {/* Prominent Device IP & TCP Target Card */}
-        <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-4 text-left space-y-2.5 shadow-lg">
-          <div className="flex items-center justify-between border-b border-dark-700/60 pb-2">
-            <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
-              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
-              Connected Device IP
-            </span>
-            <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-              androidConnected 
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse' 
-                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-            }`}>
-              {androidConnected ? 'TCP Connected 🟢' : 'Connecting TCP (Port 7000) ⏳'}
-            </span>
-          </div>
+        {/* Status Cards */}
+        <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-4 text-left space-y-3 shadow-lg">
 
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">Device IP Address:</span>
-            <strong className="text-emerald-400 text-sm font-bold bg-dark-950 px-2.5 py-1 rounded-lg border border-dark-700">
-              {displayIp}
+          {/* This device's public IP */}
+          <div className="flex items-center justify-between border-b border-dark-700/60 pb-3">
+            <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              Your Device IP
+            </span>
+            <strong className={`text-sm font-bold font-mono px-2.5 py-1 rounded-lg border ${
+              myPublicIp
+                ? 'text-blue-300 bg-blue-500/10 border-blue-500/30'
+                : 'text-amber-400 bg-amber-500/10 border-amber-500/30 animate-pulse'
+            }`}>
+              {myPublicIp || 'Detecting…'}
             </strong>
           </div>
 
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">TCP Transfer Target:</span>
-            <span className="text-slate-200">
-              {displayIp !== 'Detecting...' ? `${displayIp}:7000` : 'Waiting for IP...'}
+          {/* Android App Connection */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-emerald-400" />
+              Android App
             </span>
+            <div className="text-right">
+              <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                androidConnected
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 animate-pulse'
+                  : 'bg-slate-800 text-slate-500 border-slate-700'
+              }`}>
+                {androidConnected ? '🟢 Connected' : '⚫ Not Connected'}
+              </span>
+              {androidConnected && androidDeviceIp && (
+                <p className="text-[10px] font-mono text-slate-500 mt-0.5">
+                  {androidDeviceIp}
+                </p>
+              )}
+              {!androidConnected && (
+                <p className="text-[10px] text-slate-600 mt-0.5">
+                  Open BLE Helper app → Connect Web Bridge
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* 2 Choices: Client vs Admin */}
+        {/* Role Choices */}
         <div className="grid grid-cols-1 gap-3.5 text-left">
-          
-          {/* 1. Client Choice */}
+
+          {/* Client */}
           <button
             onClick={() => handleSelect('client')}
             className="p-4 sm:p-5 rounded-2xl bg-dark-900 hover:bg-dark-800 border-2 border-dark-700/80 hover:border-blue-500 transition-all duration-200 flex items-center justify-between group shadow-xl active:scale-[0.98]"
@@ -76,14 +89,14 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
                   1. Client / Public Monitor
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Receive emergency broadcasts & evacuation guidance
+                  Receive emergency broadcasts &amp; evacuation guidance
                 </p>
               </div>
             </div>
             <ArrowRight className="w-5 h-5 text-slate-600 group-hover:text-blue-400 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
           </button>
 
-          {/* 2. Admin Choice */}
+          {/* Admin */}
           <button
             onClick={() => handleSelect('admin')}
             className="p-4 sm:p-5 rounded-2xl bg-dark-900 hover:bg-dark-800 border-2 border-dark-700/80 hover:border-amber-500 transition-all duration-200 flex items-center justify-between group shadow-xl active:scale-[0.98]"
@@ -97,7 +110,7 @@ export default function RoleSelect({ onSelectRole, androidConnected, deviceIp })
                   2. Incident Control / Admin
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Manage incident alerts & monitor Android bridge
+                  Manage incident alerts &amp; monitor Android bridge
                 </p>
               </div>
             </div>

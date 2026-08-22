@@ -4,15 +4,14 @@ class StateService {
   constructor() {
     this.state = {
       androidConnected: false,
-      targetDeviceIp: process.env.ANDROID_HOST || '127.0.0.1',
-      targetDevicePort: parseInt(process.env.TCP_PORT, 10) || 7000,
-      detectedClientIp: null,
+      androidDeviceIp: null,       // IP of the Android device (from HTTP POST headers)
+      androidLastSeen: null,       // Timestamp of last Android POST
       latestMessage: null,
       lastMessageTime: null,
-      tcpConnectionsCount: 0,
       alertHistory: []
     };
     this.io = null;
+    this._androidTimeoutTimer = null;
   }
 
   setSocketIO(ioInstance) {
@@ -20,50 +19,44 @@ class StateService {
   }
 
   getState() {
-    return { 
+    return {
       ...this.state,
       alertHistory: [...this.state.alertHistory]
     };
   }
 
-  setTargetDevice(host, port = 7000) {
-    this.state.targetDeviceIp = host;
-    this.state.targetDevicePort = port;
-    console.log(`[STATE] Target Device IP updated: ${host}:${port}`);
-
-    if (this.io) {
-      this.io.emit('device:target_updated', {
-        targetDeviceIp: this.state.targetDeviceIp,
-        targetDevicePort: this.state.targetDevicePort,
-        androidConnected: this.state.androidConnected
-      });
-    }
-  }
-
-  setDetectedClientIp(ip) {
-    if (!ip) return;
-    this.state.detectedClientIp = ip;
-    if (this.io) {
-      this.io.emit('device:detected_ip', { detectedClientIp: ip });
-    }
-  }
-
-  setAndroidConnected(status, count = 0) {
+  setAndroidConnected(status, androidIp = null) {
     this.state.androidConnected = status;
-    this.state.tcpConnectionsCount = count;
-    console.log(`[STATE] Android Connection State: ${status ? '🟢 CONNECTED' : '🔴 DISCONNECTED'} (Active TCP Sockets: ${count})`);
-    
+    if (androidIp) this.state.androidDeviceIp = androidIp;
+    if (status) this.state.androidLastSeen = new Date().toISOString();
+
+    console.log(`[STATE] Android: ${status ? '🟢 CONNECTED' : '🔴 DISCONNECTED'} (IP: ${this.state.androidDeviceIp || 'unknown'})`);
+
     if (this.io) {
       this.io.emit('android:status', {
         androidConnected: this.state.androidConnected,
-        tcpConnectionsCount: this.state.tcpConnectionsCount,
-        targetDeviceIp: this.state.targetDeviceIp,
-        targetDevicePort: this.state.targetDevicePort
+        androidDeviceIp: this.state.androidDeviceIp,
+        androidLastSeen: this.state.androidLastSeen
       });
+    }
+
+    // Auto-disconnect if no activity for 30 seconds
+    if (status) {
+      if (this._androidTimeoutTimer) clearTimeout(this._androidTimeoutTimer);
+      this._androidTimeoutTimer = setTimeout(() => {
+        this.state.androidConnected = false;
+        console.log(`[STATE] Android timed out (no activity for 30s)`);
+        if (this.io) {
+          this.io.emit('android:status', {
+            androidConnected: false,
+            androidDeviceIp: this.state.androidDeviceIp
+          });
+        }
+      }, 30000);
     }
   }
 
-  setLatestMessage(messageData) {
+  setLatestMessage(messageData, senderIp = null) {
     const formattedMessage = {
       id: messageData.alertId || `alert-${Date.now()}`,
       type: messageData.type || 'ALERT',
@@ -72,6 +65,7 @@ class StateService {
       message: messageData.message || 'Emergency message received.',
       area: messageData.area || 'Floor 1',
       sender: messageData.sender || 'Mesh Node',
+      senderIp: senderIp || messageData.senderIp || null,
       timestamp: messageData.timestamp || new Date().toISOString(),
       receivedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     };
@@ -79,16 +73,28 @@ class StateService {
     this.state.latestMessage = formattedMessage;
     this.state.lastMessageTime = formattedMessage.receivedAt;
 
+    // Mark Android as connected when it sends an alert
+    if (senderIp) {
+      this.state.androidDeviceIp = senderIp;
+      this.state.androidConnected = true;
+      this.state.androidLastSeen = new Date().toISOString();
+    }
+
     // Maintain recent history (last 20 alerts)
     this.state.alertHistory = [
       formattedMessage,
       ...this.state.alertHistory.filter(a => a.id !== formattedMessage.id)
     ].slice(0, 20);
 
-    console.log(`[STATE] New Alert Stored: [${formattedMessage.alertType}] ${formattedMessage.message}`);
+    console.log(`[STATE] 🚨 Alert: [${formattedMessage.alertType}] "${formattedMessage.message}" (from ${senderIp || 'unknown'})`);
 
     if (this.io) {
       this.io.emit('emergency:alert', formattedMessage);
+      // Also update Android connection status badge
+      this.io.emit('android:status', {
+        androidConnected: true,
+        androidDeviceIp: senderIp || this.state.androidDeviceIp
+      });
     }
 
     return formattedMessage;
@@ -98,7 +104,6 @@ class StateService {
     this.state.latestMessage = null;
     this.state.lastMessageTime = null;
     console.log(`[STATE] Active alert cleared.`);
-
     if (this.io) {
       this.io.emit('alert:cleared');
     }

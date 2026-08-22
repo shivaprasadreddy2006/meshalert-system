@@ -1,24 +1,5 @@
 const { Server } = require('socket.io');
 const stateService = require('../services/stateService');
-const { setTargetHost, getTargetInfo } = require('../tcp/tcpServer');
-
-function getSocketIp(socket) {
-  let ip = socket.handshake.headers['cf-connecting-ip'] ||
-           socket.handshake.headers['x-real-ip'] ||
-           socket.handshake.headers['x-client-ip'] ||
-           socket.handshake.headers['x-forwarded-for'] ||
-           socket.handshake.address;
-
-  if (ip && typeof ip === 'string') {
-    if (ip.includes(',')) {
-      ip = ip.split(',')[0].trim();
-    }
-    if (ip.startsWith('::ffff:')) {
-      ip = ip.replace('::ffff:', '');
-    }
-  }
-  return ip || '127.0.0.1';
-}
 
 function initSocketServer(httpServer) {
   const io = new Server(httpServer, {
@@ -28,45 +9,33 @@ function initSocketServer(httpServer) {
     }
   });
 
-  // Connect state service to this Socket.IO instance
   stateService.setSocketIO(io);
 
   io.on('connection', (socket) => {
-    const clientIp = getSocketIp(socket);
-    console.log(`💻 [WEB SOCKET] Client connected: ${socket.id} (Device IP: ${clientIp})`);
+    console.log(`💻 [SOCKET] Browser client connected: ${socket.id}`);
 
-    // Track detected client IP
-    if (clientIp && clientIp !== '127.0.0.1') {
-      stateService.setDetectedClientIp(clientIp);
-      console.log(`✨ [AUTO-IP] Targeting TCP to accessing device: ${clientIp}:7000`);
-      setTargetHost(clientIp, 7000);
-    }
-
-    // Send immediate snapshot of current system state
+    // Send current system state immediately on connect
     socket.emit('initial_state', {
-      ...stateService.getState(),
-      yourDetectedIp: clientIp,
-      targetInfo: getTargetInfo()
+      ...stateService.getState()
     });
 
-    // Client explicitly reports its detected public IP from browser
+    // Browser reports its own public IP (fetched from api.ipify.org on the client side)
     socket.on('device:report_ip', (data) => {
       if (data && data.ip) {
-        let cleanIp = String(data.ip).trim().replace('::ffff:', '');
-        console.log(`📱 [CLIENT REPORTED IP] Received IP from client: ${cleanIp}`);
-        stateService.setDetectedClientIp(cleanIp);
-        setTargetHost(cleanIp, 7000);
+        console.log(`🌐 [CLIENT SELF-REPORTED IP]: ${data.ip} (socket: ${socket.id})`);
+        // We just log it — the browser already stores it in React state directly.
+        // No server action needed for this.
       }
     });
 
-    // Admin can clear active alerts
+    // Admin clears active alert
     socket.on('admin:clear_alert', () => {
-      console.log(`🛡️ [ADMIN ACTION] Clear active alert requested by React client ${socket.id}`);
+      console.log(`🛡️ [ADMIN] Alert cleared by client ${socket.id}`);
       stateService.clearAlert();
     });
 
     socket.on('disconnect', () => {
-      console.log(`💻 [WEB SOCKET] Client disconnected: ${socket.id}`);
+      console.log(`💻 [SOCKET] Browser client disconnected: ${socket.id}`);
     });
   });
 
