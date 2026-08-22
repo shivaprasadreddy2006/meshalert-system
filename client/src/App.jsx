@@ -29,17 +29,18 @@ export default function App() {
       ? 'http://localhost:5000'
       : window.location.origin;
 
-    // 1. Ask backend directly what device IP it detected and is targeting
+    // 1. Probe backend for detected client IP
     fetch(`${BACKEND_URL}/api/device/my-ip`)
       .then((res) => res.json())
       .then((data) => {
+        console.log('📡 [/api/device/my-ip result]:', data);
         if (data) {
           if (data.yourIp) setDetectedClientIp(data.yourIp);
           if (data.currentTarget) setTargetDeviceIp(data.currentTarget);
           if (data.currentTargetPort) setTargetDevicePort(data.currentTargetPort);
         }
       })
-      .catch((err) => console.log('Backend IP probe error:', err));
+      .catch((err) => console.error('Backend IP probe failed:', err));
 
     // 2. Initial State Snapshot from Backend Socket
     socket.on('initial_state', (data) => {
@@ -74,6 +75,7 @@ export default function App() {
 
     // 5. Detected client IP from Backend
     socket.on('device:detected_ip', (data) => {
+      console.log('📱 [DETECTED IP EVENT]:', data);
       if (data.detectedClientIp) setDetectedClientIp(data.detectedClientIp);
     });
 
@@ -137,8 +139,8 @@ export default function App() {
     setShowFullScreen(false);
   };
 
-  // The single synchronized device IP targeted by backend
-  const activeDeviceIp = targetDeviceIp || detectedClientIp;
+  // The active device IP to display
+  const activeDeviceIp = detectedClientIp || targetDeviceIp;
 
   return (
     <div className="min-h-screen bg-[#070a13] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">

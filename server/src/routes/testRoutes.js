@@ -9,8 +9,8 @@ function getClientIp(req) {
            req.headers['x-real-ip'] ||
            req.headers['x-client-ip'] ||
            req.headers['x-forwarded-for'] ||
-           req.socket?.remoteAddress ||
-           req.ip;
+           req.ip ||
+           req.socket?.remoteAddress;
 
   if (ip && typeof ip === 'string') {
     if (ip.includes(',')) {
@@ -22,6 +22,25 @@ function getClientIp(req) {
   }
   return ip || '127.0.0.1';
 }
+
+// Debug endpoint to inspect all headers and detected IP
+router.get('/debug', (req, res) => {
+  const detectedIp = getClientIp(req);
+  res.json({
+    detectedIp,
+    headers: {
+      'cf-connecting-ip': req.headers['cf-connecting-ip'],
+      'x-real-ip': req.headers['x-real-ip'],
+      'x-client-ip': req.headers['x-client-ip'],
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      'host': req.headers['host'],
+      'user-agent': req.headers['user-agent']
+    },
+    expressIp: req.ip,
+    socketRemoteAddress: req.socket?.remoteAddress,
+    state: stateService.getState()
+  });
+});
 
 // Get current system & device connection status
 router.get('/status', (req, res) => {
@@ -37,16 +56,22 @@ router.get('/status', (req, res) => {
 // View what IP the server sees for this client
 router.get('/device/my-ip', (req, res) => {
   const clientIp = getClientIp(req);
-  if (clientIp && clientIp !== '127.0.0.1') {
+  console.log(`🔍 [/api/device/my-ip] Request from: ${clientIp}`);
+
+  if (clientIp) {
     stateService.setDetectedClientIp(clientIp);
-    setTargetHost(clientIp, 7000);
+    if (clientIp !== '127.0.0.1') {
+      setTargetHost(clientIp, 7000);
+    }
   }
+
+  const state = stateService.getState();
   res.json({
     success: true,
     yourIp: clientIp,
-    currentTarget: stateService.getState().targetDeviceIp,
-    currentTargetPort: stateService.getState().targetDevicePort,
-    androidConnected: stateService.getState().androidConnected
+    currentTarget: state.targetDeviceIp || clientIp,
+    currentTargetPort: state.targetDevicePort || 7000,
+    androidConnected: state.androidConnected
   });
 });
 
