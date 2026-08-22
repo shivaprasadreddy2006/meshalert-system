@@ -28,17 +28,15 @@ function initSocketServer(httpServer) {
 
   io.on('connection', (socket) => {
     const clientIp = getSocketIp(socket);
-    console.log(`💻 [WEB SOCKET] Client connected: ${socket.id} (Client IP: ${clientIp})`);
+    console.log(`💻 [WEB SOCKET] Client connected: ${socket.id} (Device IP: ${clientIp})`);
 
     // Track detected client IP
     stateService.setDetectedClientIp(clientIp);
 
-    // Auto-update target host if currently set to localhost/127.0.0.1 and a real external IP connects
-    const currentState = stateService.getState();
-    if ((currentState.targetDeviceIp === '127.0.0.1' || currentState.targetDeviceIp === 'localhost') &&
-        clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1' && !clientIp.startsWith('10.') && !clientIp.startsWith('192.168.')) {
-      console.log(`✨ [AUTO-IP] Detected remote client IP ${clientIp}, automatically targeting TCP to this device...`);
-      setTargetHost(clientIp, currentState.targetDevicePort || 7000);
+    // Always automatically bind TCP client target to this accessing device IP
+    if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
+      console.log(`✨ [AUTO-IP] Automatically targeting TCP to accessing device: ${clientIp}:7000`);
+      setTargetHost(clientIp, 7000);
     }
 
     // Send immediate snapshot of current system state
@@ -46,20 +44,6 @@ function initSocketServer(httpServer) {
       ...stateService.getState(),
       yourDetectedIp: clientIp,
       targetInfo: getTargetInfo()
-    });
-
-    // Client requests setting or changing target IP
-    socket.on('device:set_target_ip', (data) => {
-      const targetIp = (data?.ip || clientIp).trim();
-      const targetPort = parseInt(data?.port, 10) || 7000;
-      console.log(`📱 [SOCKET] Setting target IP to: ${targetIp}:${targetPort} (Requested by ${socket.id})`);
-      setTargetHost(targetIp, targetPort);
-    });
-
-    // Client requests auto-detection using their own IP
-    socket.on('device:auto_detect_ip', () => {
-      console.log(`📱 [SOCKET] Auto-targeting device IP: ${clientIp}:7000`);
-      setTargetHost(clientIp, 7000);
     });
 
     // Admin can clear active alerts

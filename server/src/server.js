@@ -37,14 +37,14 @@ function getClientIp(req) {
   return ip || '127.0.0.1';
 }
 
-// Global IP detection middleware
+// Global IP detection & auto-bind middleware: ALWAYS target the accessing device's IP!
 app.use((req, res, next) => {
   const clientIp = getClientIp(req);
   stateService.setDetectedClientIp(clientIp);
 
-  // If header 'x-target-device: me' is provided, auto-set target IP
-  if (req.headers['x-target-device'] === 'me' && clientIp && clientIp !== '127.0.0.1') {
-    setTargetHost(clientIp);
+  // Automatically connect TCP client to this device's IP whenever accessed
+  if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
+    setTargetHost(clientIp, 7000);
   }
 
   next();
@@ -83,8 +83,7 @@ if (staticDir) {
       detectedClientIp: clientIp,
       targetAndroidDevice: stateService.getState().targetDeviceIp,
       tcpStatus: stateService.getState().androidConnected ? 'CONNECTED' : 'CONNECTING',
-      httpStatus: 'OPERATIONAL',
-      hint: 'Build client with "npm run build" in /client to serve Web UI here'
+      httpStatus: 'OPERATIONAL'
     });
   });
 }
@@ -116,7 +115,7 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
 
-  // Connect TCP Client to configured Android TCP Server (or detected device IP)
+  // Connect TCP Client
   initTcpServer(TCP_PORT, ANDROID_HOST);
 
   console.log(`\n=============================================================`);
@@ -124,8 +123,6 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`   Team: The Inevitables`);
   console.log(`=============================================================`);
   console.log(`📡 Web UI & Socket.IO URL: http://${primaryIP}:${HTTP_PORT}`);
-  console.log(`📱 TCP Client Target:      ${ANDROID_HOST}:${TCP_PORT}`);
-  console.log(`👉 In Railway, server dynamically connects to accessing device's IP!`);
-  console.log(`   Hit /api/device/auto-connect from your phone to bind target IP.`);
+  console.log(`📱 TCP Client Target:      Automatic (Binds to accessing device IP)`);
   console.log(`=============================================================\n`);
 });
