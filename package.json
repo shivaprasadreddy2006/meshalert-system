@@ -2,21 +2,17 @@
   "name": "mesh-alert-system",
   "version": "1.0.0",
   "description": "Mesh-based Alerting System with Localization Support (Team: The Inevitables)",
+  "private": true,
   "scripts": {
-    "install:all": "npm --prefix server install && npm --prefix client install",
-    "build:client": "npm --prefix client run build",
     "build": "npm --prefix client run build",
-    "start": "npm --prefix server start",
-    "dev:server": "npm --prefix server run dev",
-    "dev:client": "npm --prefix client run dev",
-    "test:tcp": "npm --prefix server run test-tcp"
+    "start": "node server/src/server.js",
+    "dev": "node server/src/server.js",
+    "postinstall": "npm --prefix server install && npm --prefix client install"
   },
-  "keywords": [
-    "ble-mesh",
-    "emergency-alert",
-    "tcp-socket",
-    "socket.io",
-    "react"
-  ],
-  "author": "The Inevitables"
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
 }

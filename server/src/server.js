@@ -33,6 +33,8 @@ app.get('/health', (req, res) => {
 // Static Client Serving
 const possiblePaths = [
   path.join(__dirname, '../../client/dist'),
+  path.join(process.cwd(), 'client/dist'),
+  path.resolve('./client/dist'),
   path.resolve('/app/client/dist'),
   path.join(__dirname, '../public'),
   path.join(__dirname, '../../dist')
