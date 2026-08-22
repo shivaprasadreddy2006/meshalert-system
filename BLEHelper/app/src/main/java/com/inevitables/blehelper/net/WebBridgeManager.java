@@ -11,12 +11,9 @@ import com.inevitables.blehelper.mesh.BleMeshManager;
 
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -27,19 +24,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Android TCP Server — listens on a configurable port (default 7000).
- * The Node.js web server connects to this socket as a client.
- * When an alert is received from the BLE mesh, it is written to all
- * currently-connected server-side clients (i.e. the Node.js instance).
+ * Manages communication between Android BLE Mesh Helper and the Cloud Web Application (Railway).
+ * Uses robust HTTPS REST endpoints to bridge emergency alerts through mobile carrier NAT/firewalls.
  */
 public class WebBridgeManager {
     private static final String TAG = "WebBridgeManager";
 
     private static final String PREFS_NAME = "web_bridge_prefs";
-    private static final String KEY_PORT = "pref_server_tcp_port";
+    private static final String KEY_SERVER_URL = "pref_server_url";
     private static final String KEY_AUTO_FORWARD = "pref_auto_forward";
 
-    public static final int DEFAULT_TCP_PORT = 7000;
+    // Default Railway Production Backend URL
+    public static final String DEFAULT_SERVER_URL = "https://meshalert-system-production.up.railway.app";
 
     public interface WebBridgeListener {
         void onBridgeStatusChanged(boolean connected, String message);
@@ -54,17 +50,10 @@ public class WebBridgeManager {
     private final Context mContext;
     private final SharedPreferences mPrefs;
     private final Handler mMainHandler = new Handler(Looper.getMainLooper());
-    // Two threads: one for the accept loop, one for processing/sending
-    private final ExecutorService mServerExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService mSendExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
     private final List<WebBridgeListener> mListeners = new CopyOnWriteArrayList<>();
 
-    private ServerSocket mServerSocket;
-    // The single connected client socket (the Node.js server)
-    private Socket mClientSocket;
-    private PrintWriter mWriter;
-    private boolean mServerRunning = false;
-    private boolean mClientConnected = false;
+    private boolean mIsConnected = false;
 
     private WebBridgeManager(Context context) {
         mContext = context.getApplicationContext();
@@ -86,12 +75,21 @@ public class WebBridgeManager {
         mListeners.remove(listener);
     }
 
-    public int getServerTcpPort() {
-        return mPrefs.getInt(KEY_PORT, DEFAULT_TCP_PORT);
+    public String getServerUrl() {
+        return mPrefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL);
     }
 
-    public void setServerTcpPort(int port) {
-        mPrefs.edit().putInt(KEY_PORT, port > 0 ? port : DEFAULT_TCP_PORT).apply();
+    public void setServerUrl(String url) {
+        if (url != null && !url.trim().isEmpty()) {
+            String clean = url.trim();
+            if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+                clean = "https://" + clean;
+            }
+            if (clean.endsWith("/")) {
+                clean = clean.substring(0, clean.length() - 1);
+            }
+            mPrefs.edit().putString(KEY_SERVER_URL, clean).apply();
+        }
     }
 
     public boolean isAutoForwardEnabled() {
@@ -103,113 +101,61 @@ public class WebBridgeManager {
     }
 
     public boolean isConnected() {
-        return mClientConnected && mClientSocket != null && !mClientSocket.isClosed();
+        return mIsConnected;
     }
 
-    // ------------------------------------------------------------------
-    //  Server Lifecycle
-    // ------------------------------------------------------------------
-
     /**
-     * Start the TCP server and begin accepting connections from the Node.js backend.
+     * Tests connection to the Railway backend by sending a heartbeat ping.
      */
     public void connect(BridgeResultCallback callback) {
-        if (mServerRunning) {
-            if (callback != null) mMainHandler.post(() -> callback.onResult(true, "Server already running on port " + getServerTcpPort()));
-            return;
-        }
+        mExecutor.execute(() -> {
+            String baseUrl = getServerUrl();
+            log(TAG, "Connecting to Railway Cloud Backend: " + baseUrl, BleMeshManager.LOG_INFO);
 
-        mServerExecutor.execute(() -> {
-            int port = getServerTcpPort();
             try {
-                mServerSocket = new ServerSocket(port);
-                mServerRunning = true;
-                log(TAG, "TCP Server listening on port " + port + " — waiting for Node.js connection...", BleMeshManager.LOG_INFO);
+                URL url = new URL(baseUrl + "/api/device/auto-connect");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.connect();
 
-                while (mServerRunning) {
-                    // Block until the Node.js server connects
-                    Socket incoming = mServerSocket.accept();
-                    handleNodeConnection(incoming);
+                int code = conn.getResponseCode();
+                conn.disconnect();
+
+                if (code >= 200 && code < 400) {
+                    mIsConnected = true;
+                    log(TAG, "Connected to Railway Backend (" + baseUrl + ")", BleMeshManager.LOG_SUCCESS);
+                    notifyStatus(true, "Connected to Cloud Backend 🟢");
+                    if (callback != null) mMainHandler.post(() -> callback.onResult(true, "Connected to Railway Backend!"));
+                } else {
+                    mIsConnected = false;
+                    String err = "HTTP Error " + code + " from " + baseUrl;
+                    log(TAG, err, BleMeshManager.LOG_ERROR);
+                    notifyStatus(false, err);
+                    if (callback != null) mMainHandler.post(() -> callback.onResult(false, err));
                 }
             } catch (Exception e) {
-                if (mServerRunning) {
-                    // Unexpected error
-                    log(TAG, "TCP Server error: " + e.getMessage(), BleMeshManager.LOG_ERROR);
-                    notifyStatus(false, "Server error: " + e.getMessage());
-                }
-                mServerRunning = false;
-                if (callback != null) mMainHandler.post(() -> callback.onResult(false, e.getMessage()));
+                mIsConnected = false;
+                String err = "Cannot reach " + baseUrl + " (" + e.getMessage() + ")";
+                log(TAG, err, BleMeshManager.LOG_ERROR);
+                notifyStatus(false, err);
+                if (callback != null) mMainHandler.post(() -> callback.onResult(false, err));
             }
         });
-
-        if (callback != null) mMainHandler.post(() -> callback.onResult(true, "TCP Server started on port " + getServerTcpPort()));
     }
 
-    /**
-     * Stop the server and close all connections.
-     */
     public void disconnect() {
-        mServerRunning = false;
-        closeClientSocket();
-        try {
-            if (mServerSocket != null && !mServerSocket.isClosed()) mServerSocket.close();
-        } catch (Exception ignored) {}
-        mServerSocket = null;
-        log(TAG, "TCP Server stopped", BleMeshManager.LOG_WARN);
+        mIsConnected = false;
         notifyStatus(false, "Disconnected");
+        log(TAG, "Disconnected from Web Bridge", BleMeshManager.LOG_WARN);
     }
-
-    // ------------------------------------------------------------------
-    //  Connection Handler
-    // ------------------------------------------------------------------
-
-    private void handleNodeConnection(Socket socket) {
-        // Close any previous client connection
-        closeClientSocket();
-        mClientSocket = socket;
-        mClientConnected = true;
-
-        String remoteAddr = socket.getRemoteSocketAddress().toString();
-        log(TAG, "Node.js server connected from " + remoteAddr, BleMeshManager.LOG_SUCCESS);
-        notifyStatus(true, "Node.js connected from " + remoteAddr);
-
-        try {
-            mWriter = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-            // Read incoming messages from Node.js (ACKs, registration, etc.)
-            String line;
-            while (mClientConnected && !socket.isClosed() && (line = reader.readLine()) != null) {
-                log(TAG, "Node.js → Android: " + line, BleMeshManager.LOG_INFO);
-            }
-        } catch (Exception e) {
-            log(TAG, "Node.js connection lost: " + e.getMessage(), BleMeshManager.LOG_WARN);
-        } finally {
-            mClientConnected = false;
-            closeClientSocket();
-            notifyStatus(false, "Node.js disconnected — waiting for reconnect...");
-        }
-    }
-
-    private void closeClientSocket() {
-        mClientConnected = false;
-        try {
-            if (mWriter != null) mWriter.close();
-            if (mClientSocket != null && !mClientSocket.isClosed()) mClientSocket.close();
-        } catch (Exception ignored) {}
-        mClientSocket = null;
-        mWriter = null;
-    }
-
-    // ------------------------------------------------------------------
-    //  Sending Alerts to Node.js
-    // ------------------------------------------------------------------
 
     /**
-     * Sends a BLE Mesh emergency alert to the connected Node.js web server.
+     * Sends an Emergency Alert to the Railway Backend.
      */
     public void sendAlert(int alertId, int level, String sender, String message, String area, BridgeResultCallback callback) {
-        mSendExecutor.execute(() -> {
+        mExecutor.execute(() -> {
             try {
                 String alertType = "GENERAL";
                 String priority;
@@ -245,36 +191,41 @@ public class WebBridgeManager {
                 json.put("sender", sender != null ? sender : "Mesh Node");
                 json.put("timestamp", getIsoTimestamp());
 
-                String payload = json.toString();
-                boolean sent = writeToClient(payload);
+                String baseUrl = getServerUrl();
+                URL url = new URL(baseUrl + "/api/alert");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/json; utf-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
 
-                if (sent) {
-                    log(TAG, "Alert sent to Node.js via TCP: [" + alertType + "] " + message, BleMeshManager.LOG_SUCCESS);
-                    if (callback != null) mMainHandler.post(() -> callback.onResult(true, "Alert sent to Node.js"));
+                try (OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8")) {
+                    writer.write(json.toString());
+                    writer.flush();
+                }
+
+                int code = conn.getResponseCode();
+                conn.disconnect();
+
+                if (code >= 200 && code < 300) {
+                    mIsConnected = true;
+                    log(TAG, "🚨 Alert forwarded to Cloud Web App: [" + alertType + "] " + message, BleMeshManager.LOG_SUCCESS);
+                    notifyStatus(true, "Alert forwarded to Web App 🟢");
+                    if (callback != null) mMainHandler.post(() -> callback.onResult(true, "Alert forwarded to Web App!"));
                 } else {
-                    log(TAG, "Node.js not connected — alert not delivered", BleMeshManager.LOG_ERROR);
-                    if (callback != null) mMainHandler.post(() -> callback.onResult(false, "Node.js not connected"));
+                    String err = "Server responded with code " + code;
+                    log(TAG, err, BleMeshManager.LOG_ERROR);
+                    if (callback != null) mMainHandler.post(() -> callback.onResult(false, err));
                 }
 
             } catch (Exception e) {
-                log(TAG, "Error sending alert: " + e.getMessage(), BleMeshManager.LOG_ERROR);
+                log(TAG, "Failed to send alert to Cloud Web App: " + e.getMessage(), BleMeshManager.LOG_ERROR);
                 if (callback != null) mMainHandler.post(() -> callback.onResult(false, "Error: " + e.getMessage()));
             }
         });
     }
-
-    private boolean writeToClient(String payload) {
-        if (mWriter != null && mClientConnected && mClientSocket != null && !mClientSocket.isClosed()) {
-            mWriter.println(payload);
-            mWriter.flush();
-            return !mWriter.checkError();
-        }
-        return false;
-    }
-
-    // ------------------------------------------------------------------
-    //  Helpers
-    // ------------------------------------------------------------------
 
     private String getIsoTimestamp() {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US);

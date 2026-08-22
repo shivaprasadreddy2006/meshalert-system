@@ -75,10 +75,12 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
         setupListeners();
         bindBgService();
 
-        // Initial Web Bridge state — Android is now the TCP Server
-        binding.etServerPort.setText(String.valueOf(mWebBridge.getServerTcpPort()));
+        // Initial Web Bridge state
+        if (binding.etServerIp != null) {
+            binding.etServerIp.setText(mWebBridge.getServerUrl());
+        }
         binding.switchAutoForward.setChecked(mWebBridge.isAutoForwardEnabled());
-        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Node.js Connected" : "Waiting for Node.js...");
+        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Cloud Connected 🟢" : "Ready to Connect");
 
         // Automatically start listening for Mesh Alerts as soon as dashboard opens
         mMeshManager.ensureListening();
@@ -90,7 +92,7 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
         mMeshManager.addListener(this);
         mWebBridge.addListener(this);
         updateServiceUi();
-        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Node.js Connected" : "Waiting for Node.js...");
+        updateWebBridgeUi(mWebBridge.isConnected(), mWebBridge.isConnected() ? "Cloud Connected 🟢" : "Ready to Connect");
         mMeshManager.ensureListening();
     }
 
@@ -110,46 +112,41 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
     }
 
     private void setupListeners() {
-        // Server Port text watcher — sets the port this Android TCP Server listens on
-        binding.etServerPort.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override
-            public void afterTextChanged(Editable s) {
-                if (s != null && s.length() > 0) {
-                    try {
-                        int port = Integer.parseInt(s.toString().trim());
-                        mWebBridge.setServerTcpPort(port);
-                    } catch (NumberFormatException ignored) {}
+        // Server URL text watcher
+        if (binding.etServerIp != null) {
+            binding.etServerIp.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override public void onTextChanged(CharSequence s, int start, int count, int after) {}
+                @Override
+                public void afterTextChanged(Editable s) {
+                    if (s != null && s.length() > 0) {
+                        mWebBridge.setServerUrl(s.toString().trim());
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Auto-forward toggle
         binding.switchAutoForward.setOnCheckedChangeListener((buttonView, isChecked) -> {
             mWebBridge.setAutoForwardEnabled(isChecked);
         });
 
-        // Connect Web Bridge Button
+        // Connect / Test Web Bridge Button
         binding.btnConnectWebBridge.setOnClickListener(v -> {
-            if (mWebBridge.isConnected()) {
-                mWebBridge.disconnect();
-            } else {
-                binding.btnConnectWebBridge.setEnabled(false);
-                mWebBridge.connect((success, message) -> {
-                    if (binding != null) {
-                        binding.btnConnectWebBridge.setEnabled(true);
-                        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
-                    }
-                });
-            }
+            binding.btnConnectWebBridge.setEnabled(false);
+            mWebBridge.connect((success, message) -> {
+                if (binding != null) {
+                    binding.btnConnectWebBridge.setEnabled(true);
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+                }
+            });
         });
 
-        // Test Web Bridge Button
+        // Test Web Bridge Button (Sends sample emergency alert to Cloud)
         binding.btnTestWebBridge.setOnClickListener(v -> {
             binding.btnTestWebBridge.setEnabled(false);
-            String testMsg = "Test alert from " + (Build.MODEL != null ? Build.MODEL : "Android Phone");
-            mWebBridge.sendAlert(1001, BleConstants.ALERT_LEVEL_WARN, Build.MODEL, testMsg, "Floor 1", (success, message) -> {
+            String testMsg = "Fire alert broadcast from " + (Build.MODEL != null ? Build.MODEL : "Android Phone");
+            mWebBridge.sendAlert(1001, BleConstants.ALERT_LEVEL_EMERGENCY, Build.MODEL, testMsg, "Floor 1", (success, message) -> {
                 if (binding != null) {
                     binding.btnTestWebBridge.setEnabled(true);
                     Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
@@ -164,50 +161,41 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
             }
         });
 
-        // Send Sample Mesh Alert Button
-        binding.btnSendSampleAlert.setOnClickListener(v -> {
-            int level = BleConstants.ALERT_LEVEL_EMERGENCY;
-            if (binding.rbAlertWarning.isChecked()) {
-                level = BleConstants.ALERT_LEVEL_WARN;
-            } else if (binding.rbAlertInfo.isChecked()) {
-                level = BleConstants.ALERT_LEVEL_INFO;
-            }
+        // Send Sample Mesh Alert Button (Local BLE broadcast + Cloud forward)
+        binding.btnSendAlert.setOnClickListener(v -> {
+            binding.btnSendAlert.setEnabled(false);
+            mMeshManager.broadcastAlert(
+                    BleConstants.ALERT_LEVEL_EMERGENCY,
+                    "Fire detected! Evacuate immediately via Exit A.",
+                    (success, message) -> {
+                        if (binding != null) {
+                            binding.btnSendAlert.setEnabled(true);
+                            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+                        }
+                    }
+            );
 
-            String msg = (binding.etAlertMsg.getText() != null) ? binding.etAlertMsg.getText().toString().trim() : "";
-            if (msg.isEmpty()) {
-                msg = "Alert: Distress signal from " + (Build.MODEL != null ? Build.MODEL : "Phone");
-            }
-
-            // 1. Broadcast into the air via BLE Mesh
-            boolean sent = mMeshManager.sendMeshAlert(level, msg);
-            if (sent) {
-                Toast.makeText(requireContext(), "Broadcasted over BLE Mesh & Web App!", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(requireContext(), "Broadcasting alert...", Toast.LENGTH_SHORT).show();
-            }
-
-            // 2. Also forward directly to Web Application if auto-forward is enabled
+            // Auto-forward sample alert to Web App
             if (mWebBridge.isAutoForwardEnabled()) {
-                mWebBridge.sendAlert(0, level, Build.MODEL, msg, "Floor 1", null);
+                mWebBridge.sendAlert(
+                        (int) (System.currentTimeMillis() % 100000),
+                        BleConstants.ALERT_LEVEL_EMERGENCY,
+                        Build.MODEL != null ? Build.MODEL : "Local Device",
+                        "Fire detected! Evacuate immediately via Exit A.",
+                        "Floor 1",
+                        null
+                );
             }
         });
+    }
 
-        // Log Console Buttons
-        binding.btnClearLogs.setOnClickListener(v -> mLogAdapter.clear());
-
-        binding.btnCopyLogs.setOnClickListener(v -> {
-            String logs = mLogAdapter.getAllLogsAsText();
-            if (logs.isEmpty()) {
-                Toast.makeText(requireContext(), "No logs to copy", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            ClipboardManager cm = (ClipboardManager) requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
-            if (cm != null) {
-                ClipData clip = ClipData.newPlainText("BLE Mesh Helper Logs", logs);
-                cm.setPrimaryClip(clip);
-                Toast.makeText(requireContext(), "Logs copied to clipboard", Toast.LENGTH_SHORT).show();
-            }
-        });
+    private void updateWebBridgeUi(boolean connected, String message) {
+        if (binding == null) return;
+        binding.tvBridgeStatusBadge.setText(connected ? "Online 🟢" : "Ready ⚪");
+        binding.tvBridgeStatusBadge.setBackgroundResource(
+                connected ? R.drawable.bg_badge_mesh : R.drawable.bg_badge_generic
+        );
+        binding.btnConnectWebBridge.setText(connected ? "Test Cloud Ping" : "Connect Web Bridge");
     }
 
     private void bindBgService() {
@@ -216,62 +204,63 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
     }
 
     private void toggleBackgroundService(boolean enable) {
-        Context context = requireContext();
-        Intent intent = new Intent(context, BleMeshBackgroundService.class);
         if (enable) {
-            intent.setAction(BleMeshBackgroundService.ACTION_START_SERVICE);
-            intent.putExtra(BleMeshBackgroundService.EXTRA_ENABLE_SERVER, true);
-            intent.putExtra(BleMeshBackgroundService.EXTRA_ENABLE_WAKELOCK, false);
-            ContextCompat.startForegroundService(context, intent);
+            Intent intent = new Intent(requireContext(), BleMeshBackgroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                requireContext().startForegroundService(intent);
+            } else {
+                requireContext().startService(intent);
+            }
+            bindBgService();
         } else {
-            intent.setAction(BleMeshBackgroundService.ACTION_STOP_SERVICE);
-            context.startService(intent);
+            if (mIsBound) {
+                requireContext().unbindService(mServiceConnection);
+                mIsBound = false;
+            }
+            Intent intent = new Intent(requireContext(), BleMeshBackgroundService.class);
+            requireContext().stopService(intent);
+            mBgService = null;
+            updateServiceUi();
         }
-        updateServiceUi();
     }
 
     private void updateServiceUi() {
         if (binding == null) return;
-        boolean isRunning = mBgService != null && mBgService.isRunning();
+        boolean isRunning = BleMeshBackgroundService.isRunning();
         binding.switchBgService.setChecked(isRunning);
-        binding.tvServiceStatus.setText(isRunning ? R.string.service_status_active : R.string.service_status_stopped);
-        binding.tvServiceStatus.setTextColor(ContextCompat.getColor(requireContext(), isRunning ? R.color.status_connected : R.color.status_disconnected));
-    }
-
-    private void updateWebBridgeUi(boolean isConnected, String message) {
-        if (binding == null || getContext() == null) return;
-        binding.tvBridgeStatusBadge.setText(isConnected ? R.string.bridge_status_connected : R.string.bridge_status_disconnected);
-        binding.tvBridgeStatusBadge.setTextColor(ContextCompat.getColor(requireContext(), isConnected ? R.color.status_connected : R.color.status_disconnected));
-        binding.btnConnectWebBridge.setText(isConnected ? "Disconnect" : "Connect to Web App");
-    }
-
-    // ================= WebBridgeManager Listener Callbacks =================
-
-    @Override
-    public void onBridgeStatusChanged(boolean connected, String message) {
-        updateWebBridgeUi(connected, message);
+        binding.tvServiceStatus.setText(isRunning ? "Running in background" : "Service stopped");
+        binding.tvServiceStatus.setTextColor(
+                ContextCompat.getColor(requireContext(), isRunning ? R.color.brand_emerald : R.color.text_tertiary)
+        );
     }
 
     @Override
-    public void onBridgeLog(String tag, String message, int level) {
-        if (binding == null) return;
-        mLogAdapter.addLog(tag, message, level);
-        binding.rvLogs.scrollToPosition(mLogAdapter.getItemCount() - 1);
+    public void onDestroyView() {
+        super.onDestroyView();
+        if (mIsBound) {
+            try {
+                requireContext().unbindService(mServiceConnection);
+            } catch (Exception ignored) {}
+            mIsBound = false;
+        }
+        binding = null;
     }
 
-    // ================= BleMeshManager Listener Callbacks =================
+    // ------------------------------------------------------------------
+    //  BleMeshListener Callbacks
+    // ------------------------------------------------------------------
 
     @Override
     public void onScanResult(DiscoveredBleDevice device) {}
 
     @Override
-    public void onScanStateChanged(boolean isScanning) {}
+    public void onScanStateChanged(boolean scanning) {}
 
     @Override
-    public void onConnectionStateChanged(int state, String message, DiscoveredBleDevice device) {}
+    public void onConnectionStateChanged(boolean connected, String status) {}
 
     @Override
-    public void onRssiUpdated(int rssi, String quality) {}
+    public void onRssiUpdated(int rssi) {}
 
     @Override
     public void onMtuUpdated(int mtu) {}
@@ -280,41 +269,53 @@ public class FirstFragment extends Fragment implements BleMeshManager.BleMeshLis
     public void onPhyUpdated(int txPhy, int rxPhy) {}
 
     @Override
-    public void onPacketTransmitted(MeshPacket packet) {}
+    public void onPacketTransmitted(MeshPacket packet) {
+        mLogAdapter.addLog("TX Packet", "Type: " + packet.getTypeName() + " | Seq: " + packet.getSequenceNumber(), BleMeshManager.LOG_SUCCESS);
+    }
 
     @Override
-    public void onPacketReceived(MeshPacket packet) {}
+    public void onPacketReceived(MeshPacket packet) {
+        mLogAdapter.addLog("RX Packet", "From: " + packet.getOriginatorAddressHex() + " | Hops: " + packet.getHopCount(), BleMeshManager.LOG_INFO);
+    }
 
     @Override
-    public void onAlertReceived(int alertId, int level, String sender, String message) {
-        // Android notifications & alert dialogs are disabled by design.
-        // Instead, the alert is automatically forwarded to the Web Application!
+    public void onAlertReceived(int alertId, int level, String sender, String message, String area) {
+        mLogAdapter.addLog("MESH ALERT", "[" + level + "] " + message + " (Area: " + area + ")", BleMeshManager.LOG_ERROR);
+
+        // Forward received mesh alert directly to Railway Cloud Web App
         if (mWebBridge != null && mWebBridge.isAutoForwardEnabled()) {
-            mWebBridge.sendAlert(alertId, level, sender, message, sender, null);
+            mWebBridge.sendAlert(alertId, level, sender, message, area, null);
         }
-        onLog("MeshAlert", "🚨 Received BLE Alert from " + sender + " -> Forwarded to Web Application", BleMeshManager.LOG_SUCCESS);
     }
 
     @Override
     public void onLog(String tag, String message, int level) {
-        if (binding == null) return;
-        mLogAdapter.addLog(tag, message, level);
-        binding.rvLogs.scrollToPosition(mLogAdapter.getItemCount() - 1);
+        if (mLogAdapter != null) {
+            mLogAdapter.addLog(tag, message, level);
+        }
     }
 
     @Override
-    public void onStatisticsUpdated(int txCount, int rxCount, long totalBytes, int errorCount) {}
+    public void onStatisticsUpdated(int txCount, int rxCount, int relayCount) {
+        if (binding == null) return;
+        binding.tvStatTx.setText(String.valueOf(txCount));
+        binding.tvStatRx.setText(String.valueOf(rxCount));
+        binding.tvStatRelays.setText(String.valueOf(relayCount));
+    }
+
+    // ------------------------------------------------------------------
+    //  WebBridgeListener Callbacks
+    // ------------------------------------------------------------------
 
     @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        if (mIsBound) {
-            try {
-                requireContext().unbindService(mServiceConnection);
-            } catch (Exception ignored) {
-            }
-            mIsBound = false;
+    public void onBridgeStatusChanged(boolean connected, String message) {
+        updateWebBridgeUi(connected, message);
+    }
+
+    @Override
+    public void onBridgeLog(String tag, String message, int level) {
+        if (mLogAdapter != null) {
+            mLogAdapter.addLog(tag, message, level);
         }
-        binding = null;
     }
 }
