@@ -6,9 +6,8 @@ import { unlockAudio } from '../services/audioAlarm';
 
 export default function AdminDashboard({ 
   androidConnected, 
-  targetDeviceIp = '127.0.0.1', 
-  targetDevicePort = 7000, 
-  detectedClientIp = null, 
+  androidDeviceIp,
+  myPublicIp, 
   alert, 
   alertHistory = [], 
   onClearAlert, 
@@ -58,15 +57,15 @@ export default function AdminDashboard({
     setTestMsg(p.msg);
   };
 
-  const handleTriggerAlert = async (e) => {
-    if (e) e.preventDefault();
+  const handleSendTestAlert = async (e) => {
+    e.preventDefault();
+    if (!testMsg.trim()) return;
+
     unlockAudio();
     setIsSending(true);
-    try {
-      const BACKEND_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5000' 
-        : `http://${window.location.hostname}:5000`;
 
+    try {
+      const BACKEND_URL = window.location.port === '5173' ? 'http://localhost:5000' : window.location.origin;
       await fetch(`${BACKEND_URL}/api/alert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,26 +94,26 @@ export default function AdminDashboard({
           Incident Control Center
         </h2>
         <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-          Backend automatically connects TCP to your device IP on Port 7000.
+          Broadcast emergency instructions and monitor BLE mesh relay network.
         </p>
       </div>
 
       {/* Connection Statuses */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <StatusBadge
-          label="Android TCP Bridge"
+          label="Android BLE Mesh Relay"
           isConnected={androidConnected}
-          activeText="Connected 🟢"
-          inactiveText="Connecting 🔴"
-          subtitle={`Auto-targeting device at ${targetDeviceIp}:${targetDevicePort}`}
+          activeText="Online & Relaying 🟢"
+          inactiveText="Standby / Ready ⚪"
+          subtitle={androidConnected ? `Active device: ${androidDeviceIp || 'Mesh Node'}` : 'Waiting for Android app'}
         />
 
         <StatusBadge
-          label="Detected Device IP"
-          isConnected={Boolean(detectedClientIp)}
-          activeText={detectedClientIp ? `${detectedClientIp} 🟢` : 'Detecting...'}
+          label="Your Device IP"
+          isConnected={Boolean(myPublicIp)}
+          activeText={myPublicIp ? `${myPublicIp} 🟢` : 'Detecting...'}
           inactiveText="Detecting..."
-          subtitle="Auto-bound client address"
+          subtitle="Public network address"
         />
       </div>
 
@@ -124,67 +123,75 @@ export default function AdminDashboard({
           <span>Current Active Alert</span>
           {alert && (
             <button
-              onClick={onClearAlert}
-              className="text-slate-400 hover:text-rose-400 flex items-center gap-1 transition text-[11px]"
+              onClick={onOpenFullScreen}
+              className="text-rose-400 hover:text-rose-300 transition text-[11px] underline underline-offset-2 flex items-center gap-1"
             >
-              <Trash2 className="w-3 h-3" />
-              <span>Clear Active Alert</span>
+              Take Over Screen ↗
             </button>
           )}
         </div>
-        <AlertCard 
-          alert={alert} 
-          onClearAlert={onClearAlert} 
-          onOpenFullScreen={onOpenFullScreen}
-          isAdmin={true} 
-        />
-      </div>
 
-      {/* Quick Dispatch Presets */}
-      <div className="bg-dark-900/90 border border-dark-700/80 rounded-2xl p-4 sm:p-5 space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-dark-700/60">
-          <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            Quick Incident Presets
-          </span>
-          <span className="text-[10px] font-mono text-slate-400">Tap to load preset</span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {presets.map((p, idx) => (
+        {alert ? (
+          <div className="space-y-3">
+            <AlertCard alert={alert} onOpenFullScreen={onOpenFullScreen} />
             <button
-              key={idx}
-              type="button"
-              onClick={() => handleApplyPreset(p)}
-              className="p-2.5 rounded-xl bg-dark-950 hover:bg-dark-800 border border-dark-700 hover:border-amber-500/50 text-left transition space-y-1 group"
+              onClick={onClearAlert}
+              className="w-full py-2.5 px-4 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-600 text-slate-300 hover:text-white text-xs font-bold font-mono transition flex items-center justify-center gap-2 shadow-sm"
             >
-              <div className="text-xs font-bold text-slate-200 group-hover:text-amber-400 transition-colors truncate">
-                {p.label}
-              </div>
-              <div className="text-[10px] text-slate-400 truncate">{p.area}</div>
+              <Trash2 className="w-4 h-4 text-slate-400" />
+              CLEAR ACTIVE ALERT & SILENCE SIREN
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-5 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+            <Info className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>No emergency broadcast currently active.</span>
+          </div>
+        )}
       </div>
 
-      {/* Dispatch Custom Alert Form */}
-      <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
-        <div className="flex items-center justify-between pb-2 border-b border-dark-700/60">
-          <span className="text-xs font-mono font-bold uppercase text-slate-300 flex items-center gap-1.5">
-            <Radio className="w-3.5 h-3.5 text-blue-400" />
-            Broadcast Emergency Alert
+      {/* Manual Broadcast Trigger Box */}
+      <div className="bg-dark-900 border border-dark-700/80 rounded-2xl p-4 sm:p-6 space-y-4 shadow-lg">
+        <div className="flex items-center justify-between border-b border-dark-700/60 pb-3">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <h3 className="text-sm sm:text-base font-bold text-white">
+              Dispatch Emergency Broadcast
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+            All Dashboards & Mobile
           </span>
-          <span className="text-[10px] font-mono text-slate-400">Dispatches to all clients</span>
         </div>
 
-        <form onSubmit={handleTriggerAlert} className="space-y-3.5 text-xs">
+        {/* Quick Presets */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
+            Quick Emergency Presets:
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {presets.map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => handleApplyPreset(p)}
+                className="py-1.5 px-2 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-600/80 text-[11px] font-medium text-slate-300 hover:text-white transition text-left truncate"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dispatch Form */}
+        <form onSubmit={handleSendTestAlert} className="space-y-3 pt-1">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-slate-400 font-semibold mb-1">Incident Type</label>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">INCIDENT TYPE</label>
               <select
                 value={testType}
                 onChange={(e) => setTestType(e.target.value)}
-                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-dark-950 border border-dark-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
               >
                 <option value="FIRE">🔥 FIRE</option>
                 <option value="STAMPEDE">⚠️ STAMPEDE</option>
@@ -195,92 +202,96 @@ export default function AdminDashboard({
             </div>
 
             <div>
-              <label className="block text-slate-400 font-semibold mb-1">Severity / Priority</label>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">PRIORITY</label>
               <select
                 value={testPriority}
                 onChange={(e) => setTestPriority(e.target.value)}
-                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-dark-950 border border-dark-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
               >
-                <option value="CRITICAL">CRITICAL (High Siren)</option>
-                <option value="HIGH">HIGH Priority</option>
-                <option value="MEDIUM">MEDIUM Priority</option>
-                <option value="LOW">LOW / Advisory</option>
+                <option value="CRITICAL">🔴 CRITICAL</option>
+                <option value="HIGH">🟠 HIGH</option>
+                <option value="MEDIUM">🟡 MEDIUM</option>
+                <option value="LOW">🔵 LOW</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-slate-400 font-semibold mb-1">Target Area / Zone</label>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">AFFECTED AREA</label>
               <input
                 type="text"
                 value={testArea}
                 onChange={(e) => setTestArea(e.target.value)}
-                placeholder="e.g. Floor 1 / Gate 4"
-                className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                placeholder="e.g. Floor 1"
+                className="w-full bg-dark-950 border border-dark-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-slate-400 font-semibold mb-1">Evacuation & Safety Instructions</label>
+            <label className="block text-[11px] font-mono text-slate-400 mb-1">ALERT MESSAGE</label>
             <textarea
-              rows={2}
               value={testMsg}
               onChange={(e) => setTestMsg(e.target.value)}
-              placeholder="Enter clear instruction message..."
-              className="w-full bg-dark-950 border border-dark-700 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-blue-500 font-medium text-xs sm:text-sm"
-              required
+              rows={3}
+              placeholder="Enter clear evacuation or safety instructions..."
+              className="w-full bg-dark-950 border border-dark-600 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 resize-none font-sans"
             />
           </div>
 
           <button
             type="submit"
             disabled={isSending}
-            className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-rose-900/30 disabled:opacity-50 active:scale-[0.99]"
+            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold font-mono transition flex items-center justify-center gap-2 shadow-md shadow-blue-600/30 active:scale-[0.99]"
           >
             <Send className="w-4 h-4" />
-            <span>{isSending ? 'Dispatching Broadcast...' : '🚨 Broadcast Emergency Alert & Siren'}</span>
+            {isSending ? 'DISPATCHING...' : 'DISPATCH EMERGENCY BROADCAST'}
           </button>
         </form>
       </div>
 
-      {/* History Log */}
-      {alertHistory && alertHistory.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs font-mono font-bold uppercase text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <History className="w-3.5 h-3.5" />
-              Session Alert History ({alertHistory.length})
-            </span>
-          </div>
+      {/* Broadcast History */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between text-xs font-mono font-bold uppercase text-slate-400 border-b border-dark-700/60 pb-2">
+          <span className="flex items-center gap-1.5">
+            <History className="w-3.5 h-3.5 text-blue-400" />
+            Broadcast Log History
+          </span>
+          <span>{alertHistory.length} Recorded</span>
+        </div>
 
+        {alertHistory.length === 0 ? (
+          <div className="bg-dark-900/50 border border-dashed border-dark-700 rounded-xl p-5 text-center text-xs text-slate-500">
+            No incident broadcasts recorded yet.
+          </div>
+        ) : (
           <div className="space-y-2">
-            {alertHistory.map((item, idx) => (
+            {alertHistory.map((item, index) => (
               <div 
-                key={item.id || idx}
-                className="bg-dark-900/80 border border-dark-700/70 rounded-xl p-3 flex items-center justify-between gap-3 text-xs"
+                key={item.id || index}
+                className="bg-dark-900 border border-dark-700/60 rounded-xl p-3 flex items-center justify-between gap-3 text-xs"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-white uppercase text-[11px] sm:text-xs">
+                    <span className="font-bold text-white uppercase text-[11px] font-mono">
                       {item.alertType || 'ALERT'}
                     </span>
-                    <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.2 rounded bg-dark-950 border border-dark-700">
-                      {item.priority || 'MEDIUM'}
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-300 font-medium text-[11px]">
+                      {item.area || 'Floor 1'}
                     </span>
-                    {item.area && (
-                      <span className="text-[11px] text-blue-400 font-mono truncate">
-                        • {item.area}
-                      </span>
-                    )}
                   </div>
-                  <p className="text-slate-300 text-xs truncate mt-0.5">{item.message}</p>
+                  <p className="text-slate-400 text-xs mt-0.5 truncate max-w-md">
+                    {item.message}
+                  </p>
                 </div>
-                <span className="text-[10px] font-mono text-slate-500 shrink-0">{item.receivedAt}</span>
+                <div className="text-right shrink-0 font-mono text-[10px] text-slate-500">
+                  {item.receivedAt || 'Recent'}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
     </div>
   );
