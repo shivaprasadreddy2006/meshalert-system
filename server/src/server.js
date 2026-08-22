@@ -29,8 +29,8 @@ function getClientIp(req) {
            req.headers['x-real-ip'] ||
            req.headers['x-client-ip'] ||
            req.headers['x-forwarded-for'] ||
-           req.socket?.remoteAddress ||
-           req.ip;
+           req.ip ||
+           req.socket?.remoteAddress;
 
   if (ip && typeof ip === 'string') {
     if (ip.includes(',')) {
@@ -40,7 +40,7 @@ function getClientIp(req) {
       ip = ip.replace('::ffff:', '');
     }
   }
-  return ip || null;
+  return ip || '127.0.0.1';
 }
 
 // Global IP detection & auto-bind middleware: ALWAYS target the accessing device's IP!
@@ -57,14 +57,19 @@ app.use((req, res, next) => {
 app.use('/api', testRoutes);
 
 // Static Client Serving (Single-Server Unified Deployment)
-const clientDistPath = path.join(__dirname, '../../client/dist');
-const altClientDistPath = path.join(__dirname, '../public');
+const possiblePaths = [
+  path.join(__dirname, '../../client/dist'),
+  path.resolve('/app/client/dist'),
+  path.join(__dirname, '../public'),
+  path.join(__dirname, '../../dist')
+];
 
 let staticDir = null;
-if (fs.existsSync(clientDistPath)) {
-  staticDir = clientDistPath;
-} else if (fs.existsSync(altClientDistPath)) {
-  staticDir = altClientDistPath;
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    staticDir = p;
+    break;
+  }
 }
 
 if (staticDir) {
@@ -105,7 +110,7 @@ function getLocalIPs() {
   return addresses;
 }
 
-// Configurable Ports
+// Configurable Ports — uses Railway's dynamic PORT (8080 or assigned)
 const HTTP_PORT = process.env.PORT || 5000;
 const TCP_PORT = parseInt(process.env.TCP_PORT, 10) || 7000;
 const ANDROID_HOST = (process.env.ANDROID_HOST && process.env.ANDROID_HOST !== '127.0.0.1') ? process.env.ANDROID_HOST : null;
@@ -118,7 +123,7 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   const localIPs = getLocalIPs();
   const primaryIP = localIPs[0] || '127.0.0.1';
 
-  // Initialize TCP client (waits in standby until a device accesses or uses ANDROID_HOST)
+  // Initialize TCP client
   initTcpServer(TCP_PORT, ANDROID_HOST);
 
   console.log(`\n=============================================================`);

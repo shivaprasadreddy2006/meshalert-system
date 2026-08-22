@@ -9,13 +9,10 @@ RUN npm run build
 
 # Stage 2: Production Server
 FROM node:20-alpine AS runner
-WORKDIR /app
+WORKDIR /app/server
 ENV NODE_ENV=production
-ENV PORT=5000
-ENV TCP_PORT=7000
 
 # Copy server package & install production deps
-WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm ci --only=production || npm install --only=production
 COPY server/src ./src
@@ -23,7 +20,7 @@ COPY server/src ./src
 # Copy built client into place
 COPY --from=client-builder /app/client/dist /app/client/dist
 
-# Expose HTTP/WebSockets (5000) and Android TCP (7000)
-EXPOSE 5000 7000
+# Expose standard Railway port and Android TCP port
+EXPOSE 8080 5000 7000
 
 CMD ["node", "src/server.js"]
