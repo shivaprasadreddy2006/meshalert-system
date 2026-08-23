@@ -77,10 +77,6 @@ The system utilizes Bluetooth SIG standard Mesh Proxy PDUs combined with custom 
 }
 ```
 
-### Supported Alert Categories & Priorities:
-- **`alertType`**: `FIRE`, `STAMPEDE`, `MEDICAL`, `EVACUATION`, `GENERAL`
-- **`priority`**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
-
 ---
 
 ## 3. Android Architecture & Implementation (`BLEHelper`)
@@ -112,26 +108,6 @@ meshManager.sendMeshAlert(
     "FIRE: Evacuate via North Exit"       // Alert Message
 );
 ```
-
----
-
-## 4. How to Test & Diagnostics
-
-The app contains built-in diagnostic and simulation tools to test mesh communication on physical devices:
-
-### Option A: Real-Time BLE Scanner & Diagnostics
-1. Launch the app on an Android device.
-2. Navigate to the **Diagnostics & Scanner** tab (`SecondFragment`).
-3. View real-time hardware capabilities (LE 2M PHY, Coded PHY, Extended Adv support).
-4. Tap **Scan** to discover nearby Bluetooth SIG Mesh Proxy devices, view RSSI signal metrics, and connect.
-
-### Option B: Local GATT Mesh Server Mode (Dual-Device Testing)
-1. Device 1: Toggle **Mesh Server / Node Mode** in the app. This starts local BLE advertising and creates a GATT server on Service `0x1828`.
-2. Device 2: Scan for devices, find Device 1, and connect.
-3. Send simulated alert packets from either device to test packet reception, SAR reassembly, and real-time logging.
-
-### Option C: Simulated Alert Generator
-- Use the quick alert action buttons on the **Live Monitor** tab (`FirstFragment`) to dispatch test payloads into the mesh pipeline and verify deduplication and packet parsing.
 
 ---
 
