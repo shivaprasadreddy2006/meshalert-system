@@ -111,7 +111,7 @@ meshManager.sendMeshAlert(
 
 ---
 
-## 5. Step-by-Step Build & Setup Instructions
+## 4. Step-by-Step Build & Setup Instructions
 
 ### Prerequisites:
 - **Android Studio** (Ladybug / Iguana or later recommended).
@@ -142,7 +142,7 @@ meshManager.sendMeshAlert(
 
 ---
 
-## 6. Project Directory Structure
+## 5. Project Directory Structure
 
 ```
 meshalert-system/
