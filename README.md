@@ -2,192 +2,203 @@
 
 > **Hackathon Prototype**  
 > **Team:** The Inevitables  
-> **Stack:** Android (BLE & TCP Client) $\rightarrow$ Node.js (TCP & Socket.IO Server) $\rightarrow$ React Frontend
+> **Stack:** Android Native App (BLE 5.0, Bluetooth SIG Mesh Proxy & GATT Relay Server, Background Foreground Service)
 
 ---
 
 ## 1. System Architecture
 
 ```
-┌────────────────────────────────────────┐
-│          Android Native App            │  (Teammate's Responsibility)
-│  - BLE Scanning, TX/RX, Mesh Relays    │
-│  - Connects to Backend via TCP Socket  │
-└──────────────────┬─────────────────────┘
-                   │
-                   │  Raw Local TCP Socket (Port 7000)
-                   ▼
-┌────────────────────────────────────────┐
-│          Node.js Backend               │  (Our Bridge Responsibility)
-│  - Native TCP Server (`net` module)    │
-│  - Validates incoming JSON stream      │
-│  - In-memory state manager             │
-│  - Socket.IO Real-time Broadcaster     │
-└──────────────────┬─────────────────────┘
-                   │
-                   │  Socket.IO (Port 5000)
-                   ▼
-┌────────────────────────────────────────┐
-│           React Frontend               │  (Our UI Responsibility)
-│  ├── Role Selection (/)                │
-│  ├── Client Dashboard (/client)        │
-│  └── Admin Dashboard (/admin)          │
-└────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                  BLE Mesh Network / Nodes                    │
+│  - BLE 5.0 Mesh Nodes & Beacons                              │
+│  - SIG Mesh Proxy Service (UUID: 0x1828)                     │
+│  - Alert Broadcast & Localization Pointers                   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               │  Bluetooth SIG Mesh Proxy (GATT)
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│             Android BLE Helper App (BLEHelper)               │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │                    Core Mesh Engine                    │  │
+│  │  - `BleMeshManager`: SIG Proxy Client & Scanner        │  │
+│  │  - `BleMeshServerManager`: GATT Server & Mesh Node Adv │  │
+│  │  - `MeshPacket`: PDU Serialization & SAR Segmentation  │  │
+│  │  - `BleDiagnosticsHelper`: Link Metrics & Hardware Adv │  │
+│  └───────────────────────────┬────────────────────────────┘  │
+│                              │                               │
+│  ┌───────────────────────────▼────────────────────────────┐  │
+│  │              Background Service Layer                  │  │
+│  │  - `BleMeshBackgroundService`: Foreground Service      │  │
+│  │  - Partial WakeLock & Sticky Link Maintenance          │  │
+│  └───────────────────────────┬────────────────────────────┘  │
+│                              │                               │
+│  ┌───────────────────────────▼────────────────────────────┐  │
+│  │                   UI & Presentation                    │  │
+│  │  - `FirstFragment`: Live Telemetry & Alert Stream      │  │
+│  │  - `SecondFragment`: BLE Device Scanner & Node Server  │  │
+│  │  - Hardware Capabilities & Permission Diagnostics      │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. TCP Message Format (Android $\rightarrow$ Node.js)
+## 2. Message Format & Mesh Protocol
 
-The Android application sends JSON packets over the raw TCP socket on **port 7000** (newline-terminated recommended).
+The system utilizes Bluetooth SIG standard Mesh Proxy PDUs combined with custom alert opcodes for emergency broadcasts and localization data.
 
-### Sample Emergency Alert JSON Payload:
+### Bluetooth SIG Assigned UUIDs:
+- **Mesh Proxy Service**: `00001828-0000-1000-8000-00805f9b34fb` (`0x1828`)
+- **Mesh Proxy Data In**: `00002ade-0000-1000-8000-00805f9b34fb` (`0x2ADE` - Write Without Response)
+- **Mesh Proxy Data Out**: `00002adf-0000-1000-8000-00805f9b34fb` (`0x2ADF` - Notify)
+- **Mesh Provisioning Service**: `00001827-0000-1000-8000-00805f9b34fb` (`0x1827`)
+
+### Mesh Alert Packet Protocol:
+- **Opcode**: `0xA1` (`OPCODE_MESH_ALERT`)
+- **Alert Levels**:
+  - `0x01`: `INFO`
+  - `0x02`: `WARN`
+  - `0x03`: `EMERGENCY`
+
+### Sample Alert Data Payload:
 ```json
 {
   "type": "ALERT",
   "alertType": "FIRE",
-  "priority": "HIGH",
-  "message": "Fire detected on Floor 1. Move towards the North Exit. Do not use elevators.",
+  "priority": "CRITICAL",
+  "message": "Fire detected on Floor 1. Move towards North Exit.",
   "area": "Floor 1",
-  "timestamp": "2026-08-22T18:42:10+05:30"
+  "alertId": 101,
+  "sender": "Mesh Node 0x05E3",
+  "timestamp": "2026-08-23T07:00:00+05:30"
 }
 ```
 
-### Supported Alert Types & Priorities:
+### Supported Alert Categories & Priorities:
 - **`alertType`**: `FIRE`, `STAMPEDE`, `MEDICAL`, `EVACUATION`, `GENERAL`
 - **`priority`**: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`
 
 ---
 
-## 3. How Android Connects & Sends Messages (Kotlin / Java)
+## 3. Android Architecture & Implementation (`BLEHelper`)
 
-In your teammate's native Android app:
+The native Android application is engineered to operate seamlessly as both a **Mesh Proxy Client** and a **GATT Advertising Mesh Server**.
 
-```kotlin
-import java.io.OutputStreamWriter
-import java.io.PrintWriter
-import java.net.Socket
-import org.json.JSONObject
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+### Key Modules:
+1. **`BleMeshManager`**:
+   - Manages scanning with `ScanFilter` targeting Mesh Proxy Service (`0x1828`).
+   - Handles GATT connection lifecycle, MTU negotiation (up to 517 bytes), and CCCD descriptor notifications (`0x2902`).
+   - Performs periodic RSSI polling for link quality diagnostics.
+2. **`BleMeshServerManager`**:
+   - Implements local GATT server advertising capabilities.
+   - Allows an Android phone to act as an active mesh relay node broadcasting custom emergency alerts.
+3. **`BleMeshBackgroundService`**:
+   - Android Foreground Service with persistent notification (`foregroundServiceType="connectedDevice"`).
+   - Holds a `WakeLock` to prevent OS CPU throttling and radio sleep during critical emergency scenarios.
+4. **`BleDiagnosticsHelper`**:
+   - Queries hardware capabilities (LE 2M PHY, Coded PHY, Extended Advertising, Offloaded Batching).
+   - Manages modern Android 12+ (API 31–36) granular Bluetooth permissions.
 
-class BackendTcpClient(private val hostIp: String, private val port: Int = 7000) {
-    private var socket: Socket? = null
-    private var writer: PrintWriter? = null
-
-    suspend fun connectAndSend(alertJson: JSONObject) = withContext(Dispatchers.IO) {
-        try {
-            // 1. Connect TCP Socket
-            socket = Socket(hostIp, port)
-            writer = PrintWriter(OutputStreamWriter(socket!!.getOutputStream()), true)
-            
-            // 2. Send Alert Payload with newline
-            writer?.println(alertJson.toString())
-            
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-}
+### Sample Code — Alert Transmission via GATT Client:
+```java
+// Broadcast an emergency alert to connected BLE Mesh Proxy node
+BleMeshManager meshManager = BleMeshManager.getInstance(context);
+meshManager.sendMeshAlert(
+    101,                                  // Alert ID
+    BleConstants.ALERT_LEVEL_EMERGENCY,   // Emergency Level (0x03)
+    "FIRE: Evacuate via North Exit"       // Alert Message
+);
 ```
 
 ---
 
-## 4. How to Test Without an Android Device
+## 4. How to Test & Diagnostics
 
-We have included two ways to test:
+The app contains built-in diagnostic and simulation tools to test mesh communication on physical devices:
 
-### Option A: CLI TCP Simulation Script
-Run the built-in Node.js TCP test client to simulate an Android phone connecting, transmitting an alert, and disconnecting:
-```bash
-cd server
-node test-tcp-client.js
-```
-*(Watch the React dashboard immediately flip to 🟢 Connected, display the alert, and then flip to 🔴 Disconnected when closed!)*
+### Option A: Real-Time BLE Scanner & Diagnostics
+1. Launch the app on an Android device.
+2. Navigate to the **Diagnostics & Scanner** tab (`SecondFragment`).
+3. View real-time hardware capabilities (LE 2M PHY, Coded PHY, Extended Adv support).
+4. Tap **Scan** to discover nearby Bluetooth SIG Mesh Proxy devices, view RSSI signal metrics, and connect.
 
-### Option B: Built-in Admin Dashboard Test Simulator
-1. Open `http://localhost:5173`.
-2. Click **Admin**.
-3. Use the **DEV / TEST MODE** card at the bottom to dispatch custom alerts into the pipeline.
+### Option B: Local GATT Mesh Server Mode (Dual-Device Testing)
+1. Device 1: Toggle **Mesh Server / Node Mode** in the app. This starts local BLE advertising and creates a GATT server on Service `0x1828`.
+2. Device 2: Scan for devices, find Device 1, and connect.
+3. Send simulated alert packets from either device to test packet reception, SAR reassembly, and real-time logging.
+
+### Option C: Simulated Alert Generator
+- Use the quick alert action buttons on the **Live Monitor** tab (`FirstFragment`) to dispatch test payloads into the mesh pipeline and verify deduplication and packet parsing.
 
 ---
 
-## 5. Step-by-Step Local Run Instructions
+## 5. Step-by-Step Build & Setup Instructions
 
-### Step 1: Install Dependencies
-Open a terminal in the project root:
+### Prerequisites:
+- **Android Studio** (Ladybug / Iguana or later recommended).
+- Physical Android device running **Android 12 (API 31) to Android 15/16 (API 36)** with Bluetooth Low Energy support.
 
-```bash
-# Install Server Dependencies
-cd server
-npm install
+### Step 1: Open Project
+1. Open Android Studio.
+2. Select **Open** and choose the `BLEHelper` directory:
+   ```bash
+   # Path to Android project
+   meshalert-system/BLEHelper
+   ```
 
-# Install Client Dependencies
-cd ../client
-npm install
-```
+### Step 2: Sync Gradle & Build
+1. Allow Android Studio to sync Gradle files.
+2. Build the project:
+   ```bash
+   ./gradlew assembleDebug
+   ```
 
-### Step 2: Start the Backend Server
-```bash
-cd server
-npm run dev
-```
-*Output will display:*
-```text
-=============================================================
-🚀 MESH ALERT SYSTEM — TCP TO WEBSOCKET BRIDGE SERVER
-   Team: The Inevitables
-=============================================================
-📡 Web / Socket.IO URL:    http://localhost:5000
-📱 Android TCP Server:     10.9.0.179:7000
-👉 In Android Native App, connect raw TCP socket to:
-   Host: "10.9.0.179" | Port: 7000
-=============================================================
-```
-
-### Step 3: Start the React Frontend (in a second terminal)
-```bash
-cd client
-npm run dev
-```
-Open **`http://localhost:5173`** in your browser.
+### Step 3: Run on Device
+1. Connect your Android device via USB with Developer Mode & USB Debugging enabled.
+2. Click **Run 'app'** (`Shift + F10`).
+3. When prompted on the device, grant the required permissions:
+   - **Nearby Devices / Bluetooth permissions** (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_ADVERTISE`)
+   - **Location permissions** (`ACCESS_FINE_LOCATION`)
+   - **Notifications** (`POST_NOTIFICATIONS`)
 
 ---
 
 ## 6. Project Directory Structure
 
 ```
-C:\MAS\
-├── client/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx          # Brand & Role Switcher
-│   │   │   ├── StatusBadge.jsx     # Green/Red Connection Indicators
-│   │   │   └── AlertCard.jsx       # Structured Emergency Alert Box
-│   │   ├── pages/
-│   │   │   ├── RoleSelect.jsx      # Role Picker ("Client" or "Admin")
-│   │   │   ├── ClientDashboard.jsx # Client Read-Only Monitor
-│   │   │   └── AdminDashboard.jsx  # Admin Monitor & Dev Test Tool
-│   │   ├── services/
-│   │   │   └── socket.js           # Real-time Socket.IO connection
-│   │   ├── App.jsx                 # Main Application Router
-│   │   ├── main.jsx
-│   │   └── index.css
-│   └── package.json
-│
-├── server/
-│   ├── src/
-│   │   ├── tcp/
-│   │   │   └── tcpServer.js        # Native Node.js net TCP Server (Port 7000)
-│   │   ├── socket/
-│   │   │   └── socketServer.js     # Socket.IO Broadcaster (Port 5000)
-│   │   ├── services/
-│   │   │   └── stateService.js     # In-memory State Management
-│   │   ├── routes/
-│   │   │   └── testRoutes.js       # Status & Test Simulation endpoints
-│   │   └── server.js               # Main Entry Point
-│   ├── test-tcp-client.js          # CLI Script to simulate Android TCP
-│   └── package.json
-│
-└── README.md
+meshalert-system/
+└── BLEHelper/                                    # Native Android BLE Mesh Application
+    ├── app/
+    │   ├── src/
+    │   │   ├── main/
+    │   │   │   ├── java/com/inevitables/blehelper/
+    │   │   │   │   ├── mesh/                     # Bluetooth SIG Mesh Engine
+    │   │   │   │   │   ├── BleConstants.java     # SIG UUIDs (0x1828, 0x2ADE), Opcodes
+    │   │   │   │   │   ├── BleMeshManager.java   # Central BLE scanner & GATT client
+    │   │   │   │   │   ├── BleMeshServerManager.java # GATT server & advertiser node
+    │   │   │   │   │   ├── BleDiagnosticsHelper.java # Link quality, RSSI & HW info
+    │   │   │   │   │   ├── DiscoveredBleDevice.java  # Scanned device model
+    │   │   │   │   │   └── MeshPacket.java       # PDU parsing & SAR segmentation
+    │   │   │   │   ├── net/
+    │   │   │   │   │   └── WebBridgeManager.java # Network & Bridge helpers
+    │   │   │   │   ├── service/
+    │   │   │   │   │   └── BleMeshBackgroundService.java # Foreground Service & WakeLock
+    │   │   │   │   ├── ui/                       # RecyclerView adapters & UI binders
+    │   │   │   │   │   ├── DeviceAdapter.java    # Discovered devices list adapter
+    │   │   │   │   │   └── LogAdapter.java       # Real-time event log adapter
+    │   │   │   │   ├── MainActivity.java         # App shell & permission handling
+    │   │   │   │   ├── FirstFragment.java        # Live monitor & alert trigger UI
+    │   │   │   │   └── SecondFragment.java       # BLE scanner & diagnostic dashboard
+    │   │   │   ├── res/                          # Layouts, drawables, menus & themes
+    │   │   │   └── AndroidManifest.xml           # BLE features & background permissions
+    │   │   └── androidTest/                      # Android instrumentation tests
+    │   ├── build.gradle.kts                      # Module build configuration (SDK 36)
+    │   └── proguard-rules.pro
+    ├── gradle/                                   # Gradle wrapper
+    ├── build.gradle.kts                          # Top-level build configuration
+    ├── settings.gradle.kts                       # Module settings
+    └── gradle.properties
 ```
